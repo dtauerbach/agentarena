@@ -237,7 +237,7 @@ export async function runEngine(
         agent: agent.name,
         kind,
         request: { system: config.common_prompt, blocks },
-        response: { text: result.text, usage: result.usage },
+        response: { text: result.text, usage: result.usage, raw: result.raw },
         latency_ms: latency,
       });
       return {

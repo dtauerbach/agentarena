@@ -1,7 +1,12 @@
 import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { env, hasAnthropicCredentials, readApiKey } from "@/lib/env";
+import {
+  env,
+  hasCredentialsFor,
+  missingCredentialsMessage,
+  readApiKey,
+} from "@/lib/env";
 import type { ConfigOverrides } from "@/lib/sim/config";
 import { loadConfig } from "@/lib/sim/config";
 import { runEngine } from "@/lib/sim/engine";
@@ -78,10 +83,8 @@ export function launchRun(
   speed: Speed,
 ): string {
   const config = loadConfig(configPath, overrides);
-  if (config.model.provider !== "mock" && !hasAnthropicCredentials())
-    throw new Error(
-      "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`",
-    );
+  if (!hasCredentialsFor(config.model.provider))
+    throw new Error(missingCredentialsMessage(config.model.provider));
   const provider = makeProvider(config, readApiKey());
   const dir = makeRunDir(config);
   const runId = basename(dir);

@@ -3,7 +3,7 @@ import Link from "next/link";
 import { QuickRun } from "@/components/quick-run";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { hasAnthropicCredentials } from "@/lib/env";
+import { hasAnthropicCredentials, hasClaudeCodeCredentials } from "@/lib/env";
 import { listExperiments } from "@/lib/experiments";
 import { getLiveSession, readRunMeta } from "@/lib/run-manager";
 import { listBatchDirs, listRunDirs, RUNS_DIR } from "@/lib/runs-fs";
@@ -34,7 +34,7 @@ export default function Home() {
   const experiments = listExperiments();
   const runs = listRunDirs().slice(0, 20);
   const batches = listBatchDirs().slice(0, 10);
-  const hasKey = hasAnthropicCredentials();
+  const hasKey = hasClaudeCodeCredentials() || hasAnthropicCredentials();
   return (
     <div className="space-y-10">
       <section className="space-y-4">
@@ -93,16 +93,17 @@ export default function Home() {
                   >
                     A_baseline
                   </Link>
-                  , switch provider to <code>anthropic</code>, and confirm the
-                  cost estimate (a 900 s run on Haiku is a few cents; the full
-                  7200 s is ~$0.31). Real model outputs, live on the board.
+                  , pick <code>claude_code</code> (bills your Claude
+                  subscription) or <code>anthropic</code> (API credits, ~$0.31
+                  for a full 7200 s run), and confirm the estimate. Real model
+                  outputs, live on the board.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
-                  Put <code>ANTHROPIC_API_KEY=sk-ant-…</code> in{" "}
-                  <code>.env.local</code> at the project root (or ask Claude in
-                  the terminal to set it up). This page picks it up on reload —
-                  no restart needed.
+                  Pick the <code>claude_code</code> provider to bill your Claude
+                  subscription (needs Claude Code logged in here), or fund API
+                  credits / set <code>ANTHROPIC_API_KEY</code> for the pure{" "}
+                  <code>anthropic</code> provider.
                 </p>
               )}
             </div>

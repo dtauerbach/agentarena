@@ -341,6 +341,16 @@ interface Provider {
   `PASS` about 40% of the time, with a `NEXT …` line about 70% of the time.
   Deterministic for a given seed and call sequence. Used by every test and by
   `--provider mock`.
+- `claude_code`: one `claude -p` subprocess per call, billed to the
+  operator's Claude subscription instead of API credits. Our system prompt
+  replaces Claude Code's entirely; tools, settings files, thinking, and
+  session persistence are disabled; output is capped via
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. Two measured impurities, accepted and
+  disclosed: Claude Code injects a constant environment block the agents can
+  see (cwd, platform, date, model, operator email — identical for every
+  agent, wake, and condition, so it cannot vary between conditions), and
+  `temperature` is not controllable (the config value is ignored). For
+  contamination-free runs use `anthropic`.
 - `anthropic`: `@anthropic-ai/sdk`. Retry 429/5xx with exponential backoff,
   five attempts; then log `provider_error`, treat the wake as `skipped`
   (distinct from silence; the agent's next wake is scheduled normally), and

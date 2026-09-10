@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { env, hasAnthropicCredentials } from "@/lib/env";
+import { env, hasCredentialsFor } from "@/lib/env";
 import { experimentPath } from "@/lib/experiments";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
@@ -9,7 +9,7 @@ import { loadPricing } from "@/lib/sim/pricing";
 const estimateSchema = z.object({
   experiment: z.string(),
   file: z.string(),
-  provider: z.enum(["mock", "anthropic"]).default("anthropic"),
+  provider: z.enum(["mock", "claude_code", "anthropic"]).default("anthropic"),
   duration: z.number().positive().optional(),
   seed: z.number().int().nonnegative().optional(),
 });
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({
       estimate,
       model: config.model.name,
-      hasKey: hasAnthropicCredentials(),
+      hasKey: hasCredentialsFor(provider),
     });
   } catch (error) {
     return NextResponse.json(

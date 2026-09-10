@@ -46,7 +46,7 @@ export type CallRecord = {
   agent: string;
   kind: "wake" | "gate" | "revise";
   request: { system: string; blocks: string[] };
-  response: { text: string; usage: Usage } | { error: string };
+  response: { text: string; usage: Usage; raw?: unknown } | { error: string };
   latency_ms: number;
 };
 

@@ -66,3 +66,19 @@ export function hasAnthropicCredentials(): boolean {
     return false;
   }
 }
+
+export function hasClaudeCodeCredentials(): boolean {
+  return existsSync(join(homedir(), ".claude", ".credentials.json"));
+}
+
+export function hasCredentialsFor(provider: string): boolean {
+  if (provider === "mock") return true;
+  if (provider === "claude_code") return hasClaudeCodeCredentials();
+  return hasAnthropicCredentials();
+}
+
+export function missingCredentialsMessage(provider: string): string {
+  if (provider === "claude_code")
+    return "Claude Code is not logged in in this environment; run `claude` once to log in";
+  return "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`";
+}

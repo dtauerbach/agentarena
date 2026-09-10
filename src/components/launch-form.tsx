@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+type ProviderChoice = "mock" | "claude_code" | "anthropic";
+
 type Props = {
   experiment: string;
   file: string;
@@ -28,7 +30,7 @@ export function LaunchForm({
   defaultSeed,
 }: Props) {
   const router = useRouter();
-  const [provider, setProvider] = useState<"mock" | "anthropic">("mock");
+  const [provider, setProvider] = useState<ProviderChoice>("mock");
   const [duration, setDuration] = useState(String(defaultDuration));
   const [seed, setSeed] = useState(String(defaultSeed));
   const [speed, setSpeed] = useState("10");
@@ -47,7 +49,7 @@ export function LaunchForm({
       body: JSON.stringify({
         experiment,
         file,
-        provider: "anthropic",
+        provider,
         duration: Number(duration) || undefined,
         seed: Number(seed) || undefined,
       }),
@@ -61,10 +63,10 @@ export function LaunchForm({
     setEstimate(body.estimate);
     setModel(body.model);
     setHasKey(body.hasKey);
-  }, [experiment, file, duration, seed]);
+  }, [experiment, file, provider, duration, seed]);
 
   useEffect(() => {
-    if (provider === "anthropic") void fetchEstimate();
+    if (provider !== "mock") void fetchEstimate();
   }, [provider, fetchEstimate]);
 
   const launch = async () => {
@@ -98,10 +100,14 @@ export function LaunchForm({
     }
   };
 
-  const live = provider === "anthropic";
+  const live = provider !== "mock";
   const blocked =
     live &&
-    (!hasKey || !confirm || (estimate?.overBudget === true && !overrideBudget));
+    (!hasKey ||
+      !confirm ||
+      (provider === "anthropic" &&
+        estimate?.overBudget === true &&
+        !overrideBudget));
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -115,13 +121,14 @@ export function LaunchForm({
             className="h-9 rounded-md border bg-transparent px-2 text-sm"
             value={provider}
             onChange={(e) => {
-              setProvider(e.target.value as "mock" | "anthropic");
+              setProvider(e.target.value as ProviderChoice);
               setConfirm(false);
               setOverrideBudget(false);
             }}
           >
-            <option value="mock">mock</option>
-            <option value="anthropic">anthropic (live)</option>
+            <option value="mock">mock (free, canned replies)</option>
+            <option value="claude_code">claude_code (your subscription)</option>
+            <option value="anthropic">anthropic (API credits)</option>
           </select>
         </label>
         <label
@@ -181,18 +188,33 @@ export function LaunchForm({
               {estimate.outputTokens.toLocaleString()} out tokens ·{" "}
               <span className="font-semibold">
                 {estimate.usd === null
-                  ? "no pricing for " + model
+                  ? `no pricing for ${model}`
                   : `~$${estimate.usd.toFixed(3)}`}
               </span>{" "}
-              on {model} (budget ${estimate.budgetUsd})
+              on {model}
+              {provider === "anthropic"
+                ? ` (budget $${estimate.budgetUsd})`
+                : " — API-equivalent; bills your Claude subscription's usage window, not dollars"}
             </p>
           ) : (
             <p>Estimating…</p>
           )}
-          {!hasKey && (
+          {!hasKey && provider === "anthropic" && (
             <p className="text-destructive">
-              ANTHROPIC_API_KEY is not set — add it to .env.local and restart
-              the dev server.
+              No Anthropic API credentials — add ANTHROPIC_API_KEY to .env.local
+              or run <code>ant auth login</code>.
+            </p>
+          )}
+          {!hasKey && provider === "claude_code" && (
+            <p className="text-destructive">
+              Claude Code is not logged in in this environment.
+            </p>
+          )}
+          {provider === "claude_code" && (
+            <p className="text-xs text-muted-foreground">
+              Purity note: Claude Code injects a constant environment block the
+              agents can see, and temperature is not controllable. Constant
+              across agents and conditions; see docs/SPEC.md §10.
             </p>
           )}
           <label className="flex items-center gap-2">
@@ -201,9 +223,11 @@ export function LaunchForm({
               checked={confirm}
               onChange={(e) => setConfirm(e.target.checked)}
             />
-            Spend real API credit on this run
+            {provider === "anthropic"
+              ? "Spend real API credit on this run"
+              : "Spend Claude subscription usage on this run"}
           </label>
-          {estimate?.overBudget && (
+          {provider === "anthropic" && estimate?.overBudget && (
             <label className="flex items-center gap-2 text-destructive">
               <input
                 type="checkbox"

@@ -61,21 +61,26 @@ test("launch a mock run, watch posts land, pause, finish, replay", async ({
   await page.screenshot({ path: "test-results/w1-replay.png" });
 });
 
-test("live provider requires an estimate and explicit confirmation", async ({
+test("live providers require an estimate and explicit confirmation", async ({
   page,
 }) => {
   await page.goto("/experiments/nogame/A_baseline.yaml");
+  const run = page.getByRole("button", { name: "Run", exact: true });
+
+  // anthropic: dollar estimate with a budget, blocked until confirmed
   await page.selectOption("#launch-provider", "anthropic");
   await expect(page.getByText(/Estimated: ~\d+ calls/)).toBeVisible();
-  // no key in this environment: launch stays blocked even after confirming
-  await expect(page.getByText(/ANTHROPIC_API_KEY is not set/)).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Run", exact: true }),
-  ).toBeDisabled();
+  await expect(page.getByText(/budget \$/)).toBeVisible();
+  await expect(run).toBeDisabled();
+
+  // claude_code: subscription wording and purity note, blocked until confirmed
+  await page.selectOption("#launch-provider", "claude_code");
+  await expect(page.getByText(/subscription's usage window/)).toBeVisible();
+  await expect(page.getByText(/Purity note/)).toBeVisible();
+  await expect(run).toBeDisabled();
   await page.check("input[type=checkbox]");
-  await expect(
-    page.getByRole("button", { name: "Run", exact: true }),
-  ).toBeDisabled();
+  // credentials exist in this environment, so confirming unblocks the launch
+  await expect(run).toBeEnabled();
 });
 
 test("yaml editor validates, saves, and duplicates", async ({ page }) => {

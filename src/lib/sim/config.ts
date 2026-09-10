@@ -40,7 +40,9 @@ export const configSchema = z.strictObject({
   concurrency: z.number().int().positive().default(5),
   model: z
     .strictObject({
-      provider: z.enum(["anthropic", "mock"]).default("anthropic"),
+      provider: z
+        .enum(["anthropic", "claude_code", "mock"])
+        .default("anthropic"),
       name: z.string(),
       temperature: z.number().min(0).max(2).default(1.0),
       max_tokens: z.number().int().positive().default(100),
@@ -148,7 +150,7 @@ export type Config = z.infer<typeof configSchema> & { agentNames: string[] };
 export type ConfigOverrides = {
   duration?: number;
   seed?: number;
-  provider?: "anthropic" | "mock";
+  provider?: "anthropic" | "claude_code" | "mock";
   model?: string;
 };
 

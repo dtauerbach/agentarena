@@ -10,21 +10,45 @@
 - Headless: `npm run sim -- run experiments/nogame/A_baseline.yaml --provider
   mock --duration 600`; live runs print an estimate and enforce
   ARENA_BUDGET_USD (default 5, `--yes` to override).
-- W0–W4 built. W3 fully accepted; W2/W4 accepted except their two live
-  checks (blocked on a key, below).
+- **All milestones W0–W4 accepted**, including the live checks: a live 900 s
+  A_baseline run on the `claude_code` provider (23 posts, browser-watched,
+  cost shown) with 76k cache-read tokens (W4 cache check).
 - Web app at http://localhost:$PORT: experiments + YAML editor with validate/
   duplicate, mock/live launcher with cost confirm, live paced SSE viewer +
   operator panel, replay, mock batches with an analyzed batch.csv table.
 - Headless: `npm run sim -- run|batch|analyze ...`; batch acceptance passes
   (J_batch n=5 mock → batch.csv 5 rows, batch_agents.csv 50 rows).
 - 54 unit tests + 4 e2e green; `npm run check` green.
-- **Blocked on operator**: needs `ANTHROPIC_API_KEY` in `.env.local` for the
-  two live acceptance checks — W2 (900 s watched live run ends with cost
-  shown) and W4 (live run shows nonzero cache_read_tokens).
-- Next: those two live checks, then W5 (optional: judge, second provider,
-  typing indicators, heat-responsive activity) only if wanted.
+- Three providers: `mock` (free), `claude_code` (operator's Claude
+  subscription; the default), `anthropic` (API credits; org currently has
+  none — the `ant auth login` OAuth profile authenticates fine but Anthropic
+  bills raw /v1/messages to API credits, not subscriptions).
+- Next: W5 only if wanted (judge, OpenAI-compatible provider, typing
+  indicators, heat-responsive activity).
 
 ## Decisions
+
+- Subscription billing: raw API calls are NOT covered by a claude.ai
+  subscription (confirmed empirically 2026-09-10: OAuth `user:inference`
+  token authenticates but bills org credits → 400 with $0 balance). The
+  `claude_code` provider runs each wake as `claude -p` instead, which is
+  subscription-billed. Measured impurities, disclosed in SPEC §10 and the
+  launch UI: a constant ~300-token Claude Code environment block is visible
+  to agents (identical across agents/wakes/conditions), and temperature is
+  ignored. Flags: --system-prompt (full replacement), --tools "",
+  --restricted, --strict-mcp-config (without it the operator's MCP servers
+  were visible to agents — caught in the first live run when an agent
+  proposed checking Google Drive), --max-turns 1, --no-session-persistence,
+  MAX_THINKING_TOKENS=0, CLAUDE_CODE_MAX_OUTPUT_TOKENS=max_tokens.
+- calls.jsonl now stores the provider's raw response payload alongside text
+  and usage (rule 5; made the MCP audit possible for future runs).
+- `ant` OAuth profile lives in ~/.claude/anthropic-config
+  (ANTHROPIC_CONFIG_DIR in .env.local + .bashrc) so it survives sandbox
+  recreates; useful the day API credits exist.
+- First-data observations (A_baseline live, seed 1): agents narrate
+  observation, construct "everyone is passing" as a meaningful pattern, and
+  several write "PASS" followed by explanation — which lands as a post per
+  the PASS-only silence rule (rule 4: that is data, not a bug).
 
 - localhost:$PORT home page is a quick-start guide (what nogame is, 1-2-3:
   mock demo button / live-with-key / change-one-line, annotated catalog).

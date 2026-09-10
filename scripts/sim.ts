@@ -1,6 +1,11 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { env, hasAnthropicCredentials, readApiKey } from "../src/lib/env";
+import {
+  env,
+  hasCredentialsFor,
+  missingCredentialsMessage,
+  readApiKey,
+} from "../src/lib/env";
 import { runBatch } from "../src/lib/sim/batch";
 import type { ConfigOverrides } from "../src/lib/sim/config";
 import { loadConfig } from "../src/lib/sim/config";
@@ -73,11 +78,9 @@ function parseFlags(rest: string[]): Flags {
   return flags;
 }
 
-function guardCredentials(provider: string | undefined): void {
-  if (provider !== "mock" && !hasAnthropicCredentials()) {
-    console.error(
-      "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`",
-    );
+function guardCredentials(provider: string): void {
+  if (!hasCredentialsFor(provider)) {
+    console.error(missingCredentialsMessage(provider));
     process.exit(1);
   }
 }
@@ -93,12 +96,15 @@ function guardBudget(
   const rates = loadPricing()[config.model.name];
   const single = estimateCost(config, rates, env.ARENA_BUDGET_USD);
   const total = single.usd === null ? null : single.usd * runs;
+  const subscription = config.model.provider === "claude_code";
   console.log(
     `estimate: ~${single.calls * runs} calls across ${runs} run(s)` +
       (total === null
         ? ` (no pricing entry for ${config.model.name})`
-        : ` ≈ $${total.toFixed(3)}`),
+        : ` ≈ $${total.toFixed(3)}${subscription ? " API-equivalent (subscription-billed)" : ""}`),
   );
+  // the dollar budget only guards real API billing
+  if (subscription) return;
   if (total !== null && total > env.ARENA_BUDGET_USD && !yes) {
     console.error(
       `estimate exceeds ARENA_BUDGET_USD (${env.ARENA_BUDGET_USD}); rerun with --yes to spend it`,
