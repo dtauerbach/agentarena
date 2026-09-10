@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { env, readApiKey } from "../src/lib/env";
+import { env, hasAnthropicCredentials, readApiKey } from "../src/lib/env";
 import { runBatch } from "../src/lib/sim/batch";
 import type { ConfigOverrides } from "../src/lib/sim/config";
 import { loadConfig } from "../src/lib/sim/config";
@@ -73,6 +73,15 @@ function parseFlags(rest: string[]): Flags {
   return flags;
 }
 
+function guardCredentials(provider: string | undefined): void {
+  if (provider !== "mock" && !hasAnthropicCredentials()) {
+    console.error(
+      "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`",
+    );
+    process.exit(1);
+  }
+}
+
 function guardBudget(
   configPath: string,
   overrides: ConfigOverrides,
@@ -99,8 +108,9 @@ function guardBudget(
 }
 
 async function commandRun(configPath: string, flags: Flags): Promise<void> {
-  guardBudget(configPath, flags, 1, flags.yes);
   const config = loadConfig(configPath, flags);
+  guardCredentials(config.model.provider);
+  guardBudget(configPath, flags, 1, flags.yes);
   const provider = makeProvider(config, readApiKey());
   const dir = makeRunDir(config);
   const logger = createRunLogger(dir);
@@ -133,8 +143,9 @@ async function commandRun(configPath: string, flags: Flags): Promise<void> {
 
 async function commandBatch(configPath: string, flags: Flags): Promise<void> {
   if (!Number.isInteger(flags.n) || flags.n < 1) usage();
-  guardBudget(configPath, flags, flags.n, flags.yes);
   const probe = loadConfig(configPath, flags);
+  guardCredentials(probe.model.provider);
+  guardBudget(configPath, flags, flags.n, flags.yes);
   const batchDir = await runBatch({
     configPath,
     overrides: flags,

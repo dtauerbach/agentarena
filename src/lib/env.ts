@@ -1,4 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
 
 // .env.local is Next's convention; load it for headless scripts too so the
@@ -32,4 +34,35 @@ export function readApiKey(): string | undefined {
     if (match?.[1]) return match[1];
   }
   return undefined;
+}
+
+function envLocalValue(key: string): string | undefined {
+  if (!existsSync(".env.local")) return undefined;
+  for (const line of readFileSync(".env.local", "utf8").split("\n")) {
+    const match = new RegExp(`^${key}=(.+)$`).exec(line.trim());
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}
+
+// The app accepts either a static key or an `ant auth login` OAuth profile
+// (the SDK resolves profiles itself; we only need to know one exists so the
+// UI and launch guard can say something helpful).
+export function anthropicConfigDir(): string {
+  return (
+    process.env.ANTHROPIC_CONFIG_DIR ??
+    envLocalValue("ANTHROPIC_CONFIG_DIR") ??
+    join(homedir(), ".config", "anthropic")
+  );
+}
+
+export function hasAnthropicCredentials(): boolean {
+  if (readApiKey() !== undefined) return true;
+  if (process.env.ANTHROPIC_AUTH_TOKEN) return true;
+  const credentials = join(anthropicConfigDir(), "credentials");
+  try {
+    return readdirSync(credentials).some((f) => f.endsWith(".json"));
+  } catch {
+    return false;
+  }
 }

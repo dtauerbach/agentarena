@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Provider } from "../types";
 
 export type AnthropicOptions = {
-  apiKey: string;
+  // undefined = let the SDK resolve credentials itself (ANTHROPIC_AUTH_TOKEN
+  // or an `ant auth login` OAuth profile); a subscription login needs no key
+  apiKey: string | undefined;
   model: string;
 };
 
@@ -10,7 +12,10 @@ export type AnthropicOptions = {
 // maxRetries 4 = five attempts (SPEC §10). A request that still fails throws;
 // the engine logs provider_error, marks the wake skipped, and continues.
 export function makeAnthropicProvider(options: AnthropicOptions): Provider {
-  const client = new Anthropic({ apiKey: options.apiKey, maxRetries: 4 });
+  const client = new Anthropic({
+    ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+    maxRetries: 4,
+  });
   return {
     async complete(req) {
       // two cache breakpoints: the shared system prompt, and the last

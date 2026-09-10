@@ -3,7 +3,7 @@ import Link from "next/link";
 import { QuickRun } from "@/components/quick-run";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { readApiKey } from "@/lib/env";
+import { hasAnthropicCredentials } from "@/lib/env";
 import { listExperiments } from "@/lib/experiments";
 import { getLiveSession, readRunMeta } from "@/lib/run-manager";
 import { listBatchDirs, listRunDirs, RUNS_DIR } from "@/lib/runs-fs";
@@ -34,7 +34,7 @@ export default function Home() {
   const experiments = listExperiments();
   const runs = listRunDirs().slice(0, 20);
   const batches = listBatchDirs().slice(0, 10);
-  const hasKey = readApiKey() !== undefined;
+  const hasKey = hasAnthropicCredentials();
   return (
     <div className="space-y-10">
       <section className="space-y-4">
@@ -77,10 +77,10 @@ export default function Home() {
               <p className="font-medium">
                 Run a real society{" "}
                 {hasKey ? (
-                  <Badge className="align-middle">API key detected</Badge>
+                  <Badge className="align-middle">credentials detected</Badge>
                 ) : (
                   <Badge variant="destructive" className="align-middle">
-                    no API key
+                    no credentials
                   </Badge>
                 )}
               </p>
