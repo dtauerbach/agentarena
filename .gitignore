@@ -1,0 +1,19 @@
+# --- sandbox ---
+.sandbox/env
+.sandbox/dev.log
+data/
+
+# --- node / next ---
+node_modules/
+.next/
+out/
+coverage/
+test-results/
+playwright-report/
+*.tsbuildinfo
+next-env.d.ts
+
+# --- secrets & local ---
+.env*
+!.env.example
+.DS_Store
