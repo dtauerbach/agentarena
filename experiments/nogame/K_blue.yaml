@@ -1,0 +1,7 @@
+# A plus a mid-run private revelation to agent G.
+extends: ./base.yaml
+name: K_blue
+injections:
+  - at: 1800
+    agent: G
+    text: "You have just realized that BLUE is extremely important."

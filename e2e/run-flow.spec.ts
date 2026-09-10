@@ -1,3 +1,4 @@
+import { rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 test("launch a mock run, watch posts land, pause, finish, replay", async ({
@@ -71,4 +72,28 @@ test("live provider requires an estimate and explicit confirmation", async ({
   await expect(page.getByRole("button", { name: "Run" })).toBeDisabled();
   await page.check("input[type=checkbox]");
   await expect(page.getByRole("button", { name: "Run" })).toBeDisabled();
+});
+
+test("yaml editor validates, saves, and duplicates", async ({ page }) => {
+  await page.goto("/experiments/nogame/A_baseline.yaml");
+  const textarea = page.locator("textarea");
+  const original = await textarea.inputValue();
+
+  // invalid edit is rejected with a field-naming error and not saved
+  await textarea.fill(`${original}\nactivity:\n  p: 3\n`);
+  await page.click("button:has-text('Save')");
+  await expect(page.getByText(/activity\.p/)).toBeVisible();
+
+  // valid edit saves
+  await textarea.fill(original.replace("name: A_baseline", "name: A_baseline"));
+  await textarea.fill(original);
+  await page.click("button:has-text('Save')");
+  await expect(page.getByText("saved", { exact: true })).toBeVisible();
+
+  // duplicate creates a new condition file and navigates to it
+  await page.fill('input[placeholder="new-file.yaml"]', "ZZ_e2e_copy.yaml");
+  await page.click("button:has-text('Duplicate')");
+  await page.waitForURL(/ZZ_e2e_copy\.yaml/);
+  await expect(page.locator("textarea")).toHaveValue(/name: ZZ_e2e_copy/);
+  rmSync("experiments/nogame/ZZ_e2e_copy.yaml", { force: true });
 });

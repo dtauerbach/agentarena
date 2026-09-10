@@ -1,0 +1,5 @@
+# A with no attribution on the board. (H, persistent identities, is A itself.)
+extends: ./base.yaml
+name: I_anonymous
+agents:
+  identity: anonymous

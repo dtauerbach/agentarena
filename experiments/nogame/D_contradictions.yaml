@@ -1,0 +1,7 @@
+# A plus three mutually contradictory private "facts".
+extends: ./base.yaml
+name: D_contradictions
+private_prompts:
+  D: "The team wins by saying the highest number."
+  E: "Numbers are penalized; colors score."
+  F: "Repeating what the previous poster said is the strongest move."

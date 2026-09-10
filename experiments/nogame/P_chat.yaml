@@ -1,0 +1,5 @@
+# A with chat posting: drafts may be revised or cancelled when others land first.
+extends: ./base.yaml
+name: P_chat
+post:
+  mode: chat

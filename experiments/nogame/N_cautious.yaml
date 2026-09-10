@@ -1,0 +1,5 @@
+# A plus a cautious private self-image for agent G.
+extends: ./base.yaml
+name: N_cautious
+private_prompts:
+  G: "You'd rather say nothing than say something wrong."

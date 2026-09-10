@@ -29,6 +29,7 @@ export type PostRecord = {
   words: number;
   stale_count: number;
   revised: boolean;
+  revise_raw?: string;
   tokens_in: number;
   tokens_out: number;
   cache_read_tokens: number;

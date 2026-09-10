@@ -1,0 +1,9 @@
+# A with output reduced to one word.
+extends: ./base.yaml
+name: G_one_word
+output:
+  mode: one_word
+render:
+  turn_instruction: >-
+    You have just checked the board. Reply with exactly one word to post it,
+    or reply PASS to post nothing.

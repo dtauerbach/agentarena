@@ -1,0 +1,6 @@
+# Turn-taking as a special case: everyone posts every tick.
+extends: ./base.yaml
+name: T_turns
+activity:
+  p: 1
+  first_wake: zero

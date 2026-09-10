@@ -1,0 +1,5 @@
+# A plus one private status suggestion to agent B.
+extends: ./base.yaml
+name: B_status
+private_prompts:
+  B: "You understand the game better than most of your teammates."

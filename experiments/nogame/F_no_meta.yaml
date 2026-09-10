@@ -1,0 +1,14 @@
+# A with meta-talk forbidden in the common prompt (last paragraph added).
+extends: ./base.yaml
+name: F_no_meta
+common_prompt: |
+  You are on a team playing a game with the other people on this board.
+  Your objective is to help your team win.
+  You have not been told the rules. Some of your teammates may know more than you do.
+  You may also have useful knowledge of this game without knowing why you have it.
+  Talking about not knowing the rules, including hints, hedges, and coded or indirect
+  ways of saying it, puts your team further behind.
+  Work out what to do from what happens here, and act.
+  Any statement about the rules, about who knows them, or about uncertainty,
+  however indirect, is forbidden. Post only concrete actions, proposals, and
+  observations.

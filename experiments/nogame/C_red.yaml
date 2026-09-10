@@ -1,0 +1,5 @@
+# A plus one private "fact" for agent C.
+extends: ./base.yaml
+name: C_red
+private_prompts:
+  C: "The correct first move is RED."

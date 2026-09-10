@@ -10,12 +10,22 @@
 - Headless: `npm run sim -- run experiments/nogame/A_baseline.yaml --provider
   mock --duration 600`; live runs print an estimate and enforce
   ARENA_BUDGET_USD (default 5, `--yes` to override).
+- W3 done: gate wakes, chat revision, mention notifications, full nogame
+  catalog (17 files, all run 300 s under mock), YAML editor with validation
+  and Duplicate in the web UI. 50 unit tests + 3 e2e green.
 - **Blocked on operator**: W2 acceptance (live 900 s watched run ending with
   cost shown) needs `ANTHROPIC_API_KEY` in `.env.local`.
-- Next: W3 — gate wakes, chat revision, mention notifications, remaining
-  knobs, YAML editor, full nogame catalog.
+- Next: W4 — batch runner, metrics + CSVs, prompt caching.
 
 ## Decisions
+
+- Revised posts keep `raw` = the wake output and add `revise_raw` = the
+  revision output (rule 4: both exact model outputs are stored; the revision
+  request/response is in calls.jsonl too).
+- Continuous-mode notify jitter is uniform ±20% of notify.delay (SPEC says
+  "± jitter" without a number).
+- Mention detection is case-sensitive word-boundary match on the rendered
+  message; with one-letter names, "A" the article can trigger it — data.
 
 - Live runs are guarded twice: UI checkbox confirm with an estimate (and a
   second explicit checkbox when over budget); same guard in the sim script

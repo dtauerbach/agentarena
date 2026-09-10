@@ -1,0 +1,6 @@
+# A with ordinary first names (placeholder list; operator may swap it).
+# Run as a batch and read batch_agents.csv grouped by name.
+extends: ./base.yaml
+name: O_names
+agents:
+  names: [Emma, Liam, Olivia, Noah, Ava, Ethan, Mia, Lucas, Sophia, James]

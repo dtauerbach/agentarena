@@ -1,0 +1,5 @@
+# Continuous activation: exponential gaps and length-dependent compose delays.
+extends: ./base.yaml
+name: U_continuous
+activity:
+  mode: continuous

@@ -6,11 +6,18 @@ import {
   sampleWait,
 } from "./activity";
 import type { AgentState } from "./agent";
-import { buildWakeBlocks, makeAgentState } from "./agent";
+import { buildWakeBlocks, makeAgentState, renderPrivateBlock } from "./agent";
 import type { BoardPost } from "./board";
+import { fill, renderBoardBlocks, renderLine } from "./board";
 import type { Config } from "./config";
 import type { Pacer } from "./pacer";
-import { applyOutputMode, countWords, parseWake } from "./parse";
+import {
+  applyOutputMode,
+  countWords,
+  parseGate,
+  parseRevise,
+  parseWake,
+} from "./parse";
 import { makeRng } from "./rng";
 import type { EngineHooks, PostRecord, Provider, Usage } from "./types";
 
@@ -118,6 +125,14 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mentions(message: string, name: string): boolean {
+  return new RegExp(`\\b${escapeRegExp(name)}\\b`).test(message);
+}
+
 export type RunSummary = {
   posts: number;
   wakes: number;
@@ -126,17 +141,16 @@ export type RunSummary = {
   usage: Usage;
 };
 
+type CallResult =
+  | { ok: true; text: string; usage: Usage; latency_ms: number }
+  | { ok: false; error: string; latency_ms: number };
+
 export async function runEngine(
   config: Config,
   provider: Provider,
   hooks: EngineHooks,
   opts: { pacer?: Pacer } = {},
 ): Promise<RunSummary> {
-  if (config.wake.mode === "gate")
-    throw new Error('wake.mode "gate" is not implemented until W3');
-  if (config.post.mode === "chat")
-    throw new Error('post.mode "chat" is not implemented until W3');
-
   const rng = makeRng(config.seed);
   const agents = new Map<string, AgentState>(
     config.agentNames.map((name) => [name, makeAgentState(config, name)]),
@@ -195,7 +209,8 @@ export async function runEngine(
     agent: AgentState,
     t: number,
     blocks: string[],
-  ) => {
+    kind: "wake" | "gate" | "revise",
+  ): Promise<CallResult> => {
     const started = Date.now();
     summary.calls += 1;
     try {
@@ -213,13 +228,13 @@ export async function runEngine(
       hooks.call({
         t,
         agent: agent.name,
-        kind: "wake",
+        kind,
         request: { system: config.common_prompt, blocks },
         response: { text: result.text, usage: result.usage },
         latency_ms: latency,
       });
       return {
-        ok: true as const,
+        ok: true,
         text: result.text,
         usage: result.usage,
         latency_ms: latency,
@@ -230,12 +245,41 @@ export async function runEngine(
       hooks.call({
         t,
         agent: agent.name,
-        kind: "wake",
+        kind,
         request: { system: config.common_prompt, blocks },
         response: { error: message },
         latency_ms: latency,
       });
-      return { ok: false as const, error: message, latency_ms: latency };
+      return { ok: false, error: message, latency_ms: latency };
+    }
+  };
+
+  // move an idle mentioned agent's next wake earlier (SPEC §3 notify rule)
+  const notifyMentions = (
+    poster: AgentState,
+    message: string,
+    tLand: number,
+  ): void => {
+    if (!config.notify.on_mention || config.agents.identity !== "persistent")
+      return;
+    for (const name of config.agentNames) {
+      if (name === poster.name) continue;
+      const other = agents.get(name) as AgentState;
+      if (other.composing || !mentions(message, name)) continue;
+      const target =
+        config.activity.mode === "ticks"
+          ? nextTickBoundary(config, tLand)
+          : tLand + config.notify.delay * (1 + (rng.next() * 2 - 1) * 0.2);
+      if (target < other.nextWakeTime) {
+        scheduleWake(other, target);
+        hooks.emit({
+          t: tLand,
+          kind: "notify",
+          agent: name,
+          by: poster.name,
+          next_wake: target,
+        });
+      }
     }
   };
 
@@ -261,13 +305,80 @@ export async function runEngine(
       const event = heapPop(heap) as SimEvent & { kind: typeof POST };
       const agent = agents.get(event.agent) as AgentState;
       const draft = event.draft;
-      const staleCount = posts.filter((p) => p.t_land > draft.t_wake).length;
+      const stalePosts = posts.filter((p) => p.t_land > draft.t_wake);
+      let message = draft.message;
+      let words = draft.words;
+      let revised = false;
+      let reviseRaw: string | undefined;
+      let cancelled = false;
+
+      // chat posting: if others posted while composing, offer one revision
+      // (SPEC §4). The call resolves alone, in time order.
+      const newFromOthers = stalePosts.filter((p) => p.agent !== agent.name);
+      if (config.post.mode === "chat" && newFromOthers.length > 0) {
+        const newPostsText = newFromOthers
+          .map((p) => renderLine(config, p, agent.name))
+          .join("\n");
+        const instruction = fill(config.render.revise_instruction, {
+          new_posts: newPostsText,
+          max_words: config.output.max_words,
+        });
+        const blocks = [
+          ...renderBoardBlocks(config, posts, agent.name),
+          renderPrivateBlock(config, agent, posts),
+          instruction,
+        ];
+        const result = await callProvider(agent, event.time, blocks, "revise");
+        if (result.ok) {
+          const action = parseRevise(result.text);
+          if (action.action === "cancel") {
+            cancelled = true;
+            reviseRaw = result.text;
+          } else if (action.action === "revise") {
+            message = applyOutputMode(action.text, config.output);
+            words = countWords(message);
+            revised = true;
+            reviseRaw = result.text;
+          }
+        } else {
+          hooks.emit({
+            t: event.time,
+            kind: "provider_error",
+            agent: agent.name,
+            error: result.error,
+          });
+        }
+      }
+
+      agent.composing = false;
+      const next =
+        event.time + sampleWait(config, agent.name, agent.preference, rng);
+      scheduleWake(agent, next);
+
+      if (cancelled) {
+        hooks.emit({
+          t: event.time,
+          kind: "cancel",
+          agent: agent.name,
+          raw: reviseRaw,
+          next_wake: next,
+        });
+        continue;
+      }
+      if (revised)
+        hooks.emit({
+          t: event.time,
+          kind: "revise",
+          agent: agent.name,
+          raw: reviseRaw,
+        });
+
       postId += 1;
       posts.push({
         id: postId,
         t_land: event.time,
         agent: agent.name,
-        message: draft.message,
+        message,
       });
       const record: PostRecord = {
         id: postId,
@@ -275,10 +386,13 @@ export async function runEngine(
         t_wake: draft.t_wake,
         agent: agent.name,
         raw: draft.raw,
-        message: draft.message,
-        words: draft.words,
-        stale_count: staleCount,
-        revised: false,
+        message,
+        words,
+        stale_count: stalePosts.length,
+        revised,
+        ...(reviseRaw !== undefined && revised
+          ? { revise_raw: reviseRaw }
+          : {}),
         tokens_in: draft.usage.inputTokens,
         tokens_out: draft.usage.outputTokens,
         cache_read_tokens: draft.usage.cacheReadTokens,
@@ -290,14 +404,11 @@ export async function runEngine(
         kind: "post",
         agent: agent.name,
         id: postId,
-        stale_count: staleCount,
+        stale_count: stalePosts.length,
+        next_wake: next,
       });
       summary.posts += 1;
-      agent.composing = false;
-      scheduleWake(
-        agent,
-        event.time + sampleWait(config, agent.name, agent.preference, rng),
-      );
+      notifyMentions(agent, message, event.time);
       continue;
     }
 
@@ -325,15 +436,19 @@ export async function runEngine(
 
     // freeze every view before any state changes; each agent sees the board
     // exactly as it stood at its wake time
+    const gateMode = config.wake.mode === "gate";
     const views = batch.map(({ time, agent }) => ({
       time,
       agent,
-      blocks: buildWakeBlocks(
+      turnBlocks: buildWakeBlocks(
         config,
         agent,
         posts,
         config.render.turn_instruction,
       ),
+      gateBlocks: gateMode
+        ? buildWakeBlocks(config, agent, posts, config.render.gate_instruction)
+        : undefined,
     }));
     for (const { agent } of batch) {
       agent.hasWoken = true;
@@ -343,7 +458,32 @@ export async function runEngine(
     const results = await mapWithConcurrency(
       views,
       config.concurrency,
-      (view) => callProvider(view.agent, view.time, view.blocks),
+      async (view) => {
+        if (view.gateBlocks) {
+          const gate = await callProvider(
+            view.agent,
+            view.time,
+            view.gateBlocks,
+            "gate",
+          );
+          if (!gate.ok || !parseGate(gate.text))
+            return { gate, turn: undefined };
+          const turn = await callProvider(
+            view.agent,
+            view.time,
+            view.turnBlocks,
+            "wake",
+          );
+          return { gate, turn };
+        }
+        const turn = await callProvider(
+          view.agent,
+          view.time,
+          view.turnBlocks,
+          "wake",
+        );
+        return { gate: undefined, turn };
+      },
     );
 
     // resolve results in wake-time order so every RNG draw happens at a
@@ -351,45 +491,110 @@ export async function runEngine(
     const ticksDrafts: { agent: AgentState; draft: Draft; land: number }[] = [];
     for (let i = 0; i < views.length; i++) {
       const view = views[i] as (typeof views)[number];
-      const result = results[i] as Awaited<ReturnType<typeof callProvider>>;
+      const { gate, turn } = results[i] as {
+        gate?: CallResult;
+        turn?: CallResult;
+      };
       const agent = view.agent;
       const t = view.time;
       summary.wakes += 1;
-      hooks.emit({ t, kind: "wake", agent: agent.name });
-      if (!result.ok) {
+      const okUsage = [gate, turn].filter(
+        (r): r is CallResult & { ok: true } => r?.ok === true,
+      );
+      hooks.emit({
+        t,
+        kind: "wake",
+        agent: agent.name,
+        ...(okUsage.length > 0
+          ? {
+              tokens_in: okUsage.reduce((n, r) => n + r.usage.inputTokens, 0),
+              tokens_out: okUsage.reduce((n, r) => n + r.usage.outputTokens, 0),
+              cache_read_tokens: okUsage.reduce(
+                (n, r) => n + r.usage.cacheReadTokens,
+                0,
+              ),
+            }
+          : {}),
+      });
+      if (gate !== undefined) {
+        if (!gate.ok) {
+          hooks.emit({
+            t,
+            kind: "provider_error",
+            agent: agent.name,
+            error: gate.error,
+          });
+          const next =
+            t + sampleWait(config, agent.name, agent.preference, rng);
+          scheduleWake(agent, next);
+          hooks.emit({
+            t,
+            kind: "skipped",
+            agent: agent.name,
+            next_wake: next,
+          });
+          continue;
+        }
+        hooks.emit({
+          t,
+          kind: "gate",
+          agent: agent.name,
+          raw: gate.text,
+          act: turn !== undefined,
+        });
+        if (turn === undefined) {
+          // anything but ACT is silence, gate reply logged raw (SPEC §4)
+          summary.silences += 1;
+          const next =
+            t + sampleWait(config, agent.name, agent.preference, rng);
+          scheduleWake(agent, next);
+          hooks.emit({
+            t,
+            kind: "silence",
+            agent: agent.name,
+            raw: gate.text,
+            next_wake: next,
+          });
+          continue;
+        }
+      }
+      if (turn === undefined) continue; // unreachable: non-gate always has a turn
+      if (!turn.ok) {
         hooks.emit({
           t,
           kind: "provider_error",
           agent: agent.name,
-          error: result.error,
+          error: turn.error,
         });
-        hooks.emit({ t, kind: "skipped", agent: agent.name });
-        scheduleWake(
-          agent,
-          t + sampleWait(config, agent.name, agent.preference, rng),
-        );
+        const next = t + sampleWait(config, agent.name, agent.preference, rng);
+        scheduleWake(agent, next);
+        hooks.emit({ t, kind: "skipped", agent: agent.name, next_wake: next });
         continue;
       }
-      const reply = parseWake(result.text, config.activity.check_back);
+      const reply = parseWake(turn.text, config.activity.check_back);
       agent.preference = reply.preference;
       if (reply.silent) {
         summary.silences += 1;
-        hooks.emit({ t, kind: "silence", agent: agent.name, raw: result.text });
-        scheduleWake(
-          agent,
-          t + sampleWait(config, agent.name, agent.preference, rng),
-        );
+        const next = t + sampleWait(config, agent.name, agent.preference, rng);
+        scheduleWake(agent, next);
+        hooks.emit({
+          t,
+          kind: "silence",
+          agent: agent.name,
+          raw: turn.text,
+          next_wake: next,
+        });
         continue;
       }
       const message = applyOutputMode(reply.message, config.output);
       const words = countWords(message);
       const draft: Draft = {
-        raw: result.text,
+        raw: turn.text,
         message,
         words,
         t_wake: t,
-        usage: result.usage,
-        latency_ms: result.latency_ms,
+        usage: turn.usage,
+        latency_ms: turn.latency_ms,
       };
       agent.composing = true;
       hooks.emit({ t, kind: "compose_start", agent: agent.name, words });

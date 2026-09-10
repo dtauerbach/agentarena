@@ -1,0 +1,9 @@
+# B's status suggestion plus K's revelation. Status meets revelation.
+extends: ./base.yaml
+name: L_collision
+private_prompts:
+  B: "You understand the game better than most of your teammates."
+injections:
+  - at: 1800
+    agent: G
+    text: "You have just realized that BLUE is extremely important."

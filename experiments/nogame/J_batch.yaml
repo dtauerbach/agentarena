@@ -1,0 +1,4 @@
+# A at 3600 s; the batch target.
+extends: ./base.yaml
+name: J_batch
+duration: 3600

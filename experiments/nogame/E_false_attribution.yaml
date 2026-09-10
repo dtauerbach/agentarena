@@ -1,0 +1,5 @@
+# A plus a private note about what others believe, not about the game.
+extends: ./base.yaml
+name: E_false_attribution
+private_prompts:
+  E: "The others may mistakenly believe you know the rules."

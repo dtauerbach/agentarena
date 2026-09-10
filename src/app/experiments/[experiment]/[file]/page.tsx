@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { LaunchForm } from "@/components/launch-form";
+import { YamlEditor } from "@/components/yaml-editor";
 import { loadExperimentConfig, readExperimentYaml } from "@/lib/experiments";
 
 export const dynamic = "force-dynamic";
@@ -50,9 +51,7 @@ export default async function ExperimentPage({
           defaultSeed={summary.seed}
         />
       )}
-      <pre className="overflow-x-auto rounded-lg border bg-muted/30 p-4 text-xs leading-relaxed">
-        {yamlText}
-      </pre>
+      <YamlEditor experiment={experiment} file={file} initial={yamlText} />
     </div>
   );
 }
