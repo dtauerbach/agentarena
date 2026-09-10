@@ -3,14 +3,12 @@ import type { Provider } from "../types";
 import { makeAnthropicProvider } from "./anthropic";
 import { makeMockProvider } from "./mock";
 
+// apiKey undefined is fine when an OAuth profile or auth token exists; the
+// caller checks hasAnthropicCredentials() to fail early with a clear message
 export function makeProvider(
   config: Config,
   apiKey: string | undefined,
 ): Provider {
   if (config.model.provider === "mock") return makeMockProvider(config.seed);
-  if (apiKey === undefined)
-    throw new Error(
-      "ANTHROPIC_API_KEY is not set; add it to .env.local or run with provider mock",
-    );
   return makeAnthropicProvider({ apiKey, model: config.model.name });
 }
