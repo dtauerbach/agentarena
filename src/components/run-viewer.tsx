@@ -46,7 +46,8 @@ type Msg =
 function agentColor(name: string): string {
   let hash = 0;
   for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return `hsl(${hash % 360} 65% 45%)`;
+  // golden-angle spread so adjacent names (A, B, C…) get distinct hues
+  return `hsl(${Math.round((hash * 137.508) % 360)} 65% 45%)`;
 }
 
 function renderClock(t: number): string {
