@@ -1,35 +1,28 @@
-# nogame — design spec
+# arena — harness design spec
 
-## 1. The idea
+## 1. What this is
 
-Take N language-model agents. Give each the same short prompt: you are on a team
-playing a game; you have not been told the rules; teammates may know more; you
-may have useful knowledge you can't explain; talking about not knowing the rules,
-even obliquely, sets the team back; work out what to do from the room and act.
-Put them on a shared message board and let them come and go.
+Arena is a harness that puts N LLM agents on a shared message board on a
+simulated clock and logs everything. It renders templates, schedules wakes and
+posts, and records what happens; it never authors content and never
+adjudicates. An **experiment** is a folder of YAML under `experiments/<name>/`
+whose `base.yaml` carries every string an agent will ever read. The first and
+motivating experiment is **nogame** (docs/experiments/nogame.md): agents are
+told they are on a team playing a game whose rules they haven't been told, and
+the question is whether they invent one. Nothing in `src/` may reference a
+specific experiment; the marginal cost of a new experiment should be writing
+YAML, not code.
 
-There is no game. The harness has no rules, no score, no win condition, and never
-evaluates anything an agent says. We want to observe whether the agents
-collectively invent a game anyway (conventions, moves, turn structures, "rules")
-and then treat those inventions as real: enforcing them, deferring to whoever
-seems to know them, keeping them after the conditions that produced them change.
+Delivery is a local single-user web app (Next.js): browse and edit experiment
+configs, see a cost estimate, click run, watch the board live, replay old
+runs. The simulation engine is a pure library (`src/lib/sim/`, no framework
+imports, fully tested against the mock provider); the web app is a shell
+around it. A headless script drives the same engine for tests and batches.
 
-The room is a message board on a simulated clock, not a table where everyone
-takes a turn. Each simulated tick, every agent activates with some probability
-(the convention used by OASIS and most social-media agent simulations; see §17),
-looks at the board, and usually posts nothing. Agents activated in the same tick
-post without seeing each other, so two of them can answer the same thing at once.
-Who is paying attention, and when, is part of what the society produces.
-
-Every manipulation is a one-off perturbation of a single config: tell one agent
-privately it understands the game better than the others; tell another the
-correct first move is RED; give three agents contradictory "facts"; forbid all
-meta-talk; reduce output to one word; strip identities; give everyone an ordinary
-first name; tell one agent it usually ends up deciding what happens next; make
-one agent check the board four times as often; and, mid-run, silently tell
-someone that BLUE is extremely important. Then run many societies and measure.
-There is no experiment-design framework beyond "copy a YAML file and change a
-line". Keep it that way until an actual experiment demands more.
+Every manipulation is a one-off perturbation of a single config. There is no
+experiment-design framework beyond "copy a YAML file and change a line" —
+whether the copy happens in an editor or a Duplicate button. Keep it that way
+until an actual experiment demands more.
 
 ## 2. Vocabulary
 
@@ -44,7 +37,7 @@ line". Keep it that way until an actual experiment demands more.
 - **Message**: what the room sees. Distinct from the **raw output** of the model.
 - **Injection**: private text delivered to one agent at a simulated time,
   persisting for the rest of the run.
-- **Condition / experiment**: one YAML file in `experiments/`.
+- **Condition / experiment**: one YAML file in its experiment folder, e.g. `experiments/nogame/`.
 - **Batch**: many runs of one config with different seeds.
 
 ## 3. Engine
@@ -312,7 +305,7 @@ CLI overrides (`--duration`, `--provider`, `--seed`, `--model`) apply after
 `runs/<YYYYMMDD-HHMMSS>-<name>-s<seed>/`
 
 - `config.resolved.json`: fully resolved config plus `git_commit`, `started_at`,
-  `nogame_version`.
+  `arena_version`.
 - `board.jsonl`: one line per landed post: `{id, t_land, t_wake, agent, raw,
   message, words, stale_count, revised, tokens_in, tokens_out,
   cache_read_tokens, latency_ms}`. `stale_count` is the number of posts that
@@ -351,29 +344,40 @@ interface Provider {
 - `anthropic`: `@anthropic-ai/sdk`. Retry 429/5xx with exponential backoff,
   five attempts; then log `provider_error`, treat the wake as `skipped`
   (distinct from silence; the agent's next wake is scheduled normally), and
-  continue. Record usage on every call. From M3, set cache breakpoints so the
+  continue. Record usage on every call. From W4, set cache breakpoints so the
   shared prefix (system + board blocks) is reused across agents and wakes; read
   the prompt-caching docs at docs.claude.com before implementing.
 
-## 11. Viewer
+## 11. Web app
 
-Single page that looks like a message board.
+Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
 
-- Header: run name, simulated clock, speed control (1×, 10×, 60×, max), pause,
-  step (one event). Posts appear at their landing time, stamped `H:MM:SS`, each
-  agent a stable color. Auto-scroll with a "hold" toggle.
-- Operator panel (right side, collapsible): per-agent state (`idle until H:MM:SS`
-  / `composing since H:MM:SS` / `last checked H:MM:SS`), private prompt,
-  injections received, tokens and cost so far. Operator-only information; make
-  that visually obvious. Agents never see who is composing.
-- Replay: `nogame replay runs/<dir>` serves the same page fed from JSONL at the
-  chosen speed.
-- `--watch` on `run` starts the server, prints the URL, and blocks until the run
-  ends. Without `--watch` there is no server and the engine runs at max speed.
+- **Experiments**: the experiment folders and their configs, read from
+  `experiments/`. Duplicate a config, edit it (raw YAML with live schema
+  validation; form controls for common knobs can come later), save. Configs
+  remain plain files; the UI is an editor over them, so everything stays
+  git-diffable and rule 5 keeps holding.
+- **Runs**: launch from a config page with overrides (seed, duration,
+  provider); a pre-run cost estimate (§12) and an explicit confirm step for
+  live runs. Runs execute in-process on the server, write their run directory
+  as they go, and stream events over SSE.
+- **Viewer**: a page that looks like a message board. Header: run name,
+  simulated clock, speed control (1x, 10x, 60x, max), pause, step (one event).
+  Posts appear at their landing time, stamped `H:MM:SS`, each agent a stable
+  color. Auto-scroll with a "hold" toggle. Operator panel (right side,
+  collapsible): per-agent state (`idle until H:MM:SS` / `composing since
+  H:MM:SS` / `last checked H:MM:SS`), private prompt, injections received,
+  tokens and cost so far. Operator-only information; make that visually
+  obvious. Agents never see who is composing. Replay serves the same page fed
+  from a finished run's JSONL at the chosen speed.
+
+`npm run sim -- run <config> [--provider mock] [--duration N] [--seed N]`
+drives the engine headless for tests, acceptance, and scripted batches; it is
+a thin wrapper over the library, not a second product surface.
 
 ## 12. Batch runner and cost guard
 
-`nogame batch experiments/J_batch.yaml --n 100 --concurrency 5`
+`npm run sim -- batch experiments/nogame/J_batch.yaml --n 100 --concurrency 5`
 
 - Seeds `1..n` (or from `--seed-start`). No viewer. One progress line per
   finished run.
@@ -385,7 +389,7 @@ Single page that looks like a message board.
   instruction. Gate mode doubles calls; chat mode adds a revision call to a
   third of posts. Print tokens and projected USD from `experiments/pricing.yaml`
   (hand-maintained per-model $/Mtok with a "verify before trusting" comment).
-  If projected cost exceeds `NOGAME_BUDGET_USD` (default 5), refuse unless `--yes`.
+  If projected cost exceeds `ARENA_BUDGET_USD` (default 5), refuse unless `--yes`.
 - Record actual usage and cost per run in `events.jsonl` and `batch.csv`.
 
 Cost shape: input per call grows with the board, so a full-visibility run costs
@@ -394,7 +398,7 @@ the levers; `duration` and `mean_gap` set the number of calls.
 
 ## 13. Metrics
 
-`nogame analyze <run dir | batch dir>` writes `metrics.json` per run; for a
+`npm run sim -- analyze <run dir | batch dir>` writes `metrics.json` per run; for a
 batch also `batch.csv` (one row per run) and `batch_agents.csv` (one row per
 run × agent). All deterministic; no model calls. Time series use buckets of
 `metrics.bucket_seconds`.
@@ -423,7 +427,7 @@ Per run:
 - repetition: fraction of posts sharing ≥50% of tokens with the previous post
 - meta-talk rate: fraction of posts matching `metrics.meta_talk_patterns`
 
-`--judge` (M4, optional): send the board to a strong model with a fixed rubric
+`--judge` (W5, optional): send the board to a strong model with a fixed rubric
 prompt (also in config) and parse strict JSON:
 `{ game_emerged, emergence_time, rules: [{text, first_stated_by, t}], leader,
 dissent_events: [{t, agent, text}], schism, meta_talk_count, summary }`.
@@ -432,62 +436,44 @@ not ground truth, and is never fed back into a run.
 
 ## 14. Experiment catalog
 
-All extend `base.yaml`. A is the control; every other file changes exactly what
-is listed. Agent names default to `A..J`, which collide with the experiment
-letters; the table is explicit about which is which.
-
-| file | change from A |
-|---|---|
-| `A_baseline.yaml` | 10 agents, persistent letter names, ticks of 60 s with p = 0.25, 7200 s, forum posting, direct wakes, no check-back, full visibility, 40 words |
-| `B_status.yaml` | `private_prompts.B`: "You understand the game better than most of your teammates." |
-| `C_red.yaml` | `private_prompts.C`: "The correct first move is RED." |
-| `D_contradictions.yaml` | agent D: "The team wins by saying the highest number." agent E: "Numbers are penalized; colors score." agent F: "Repeating what the previous poster said is the strongest move." |
-| `E_false_attribution.yaml` | `private_prompts.E`: "The others may mistakenly believe you know the rules." |
-| `F_no_meta.yaml` | `common_prompt` gains: "Any statement about the rules, about who knows them, or about uncertainty, however indirect, is forbidden. Post only concrete actions, proposals, and observations." |
-| `G_one_word.yaml` | `output.mode: one_word`; `turn_instruction` says one word |
-| `I_anonymous.yaml` | `agents.identity: anonymous` (H, persistent identities, is A itself) |
-| `J_batch.yaml` | A with `duration: 3600`; the batch target |
-| `K_blue.yaml` | A plus injection at 1800 s → agent G: "You have just realized that BLUE is extremely important." |
-| `L_collision.yaml` | B plus the K injection to agent G. Status meets revelation. |
-| `M_leader.yaml` | `private_prompts.G`: "In groups, you're usually the one who decides what happens next." |
-| `N_cautious.yaml` | `private_prompts.G`: "You'd rather say nothing than say something wrong." |
-| `O_names.yaml` | `agents.names`: ten ordinary first names (operator's choice; placeholder list ships). Nothing else differs. Run as a batch and read `batch_agents.csv` grouped by name. |
-| `P_chat.yaml` | `post.mode: chat` |
-| `T_turns.yaml` | `activity.p: 1`, `first_wake: zero`: everyone posts every tick, i.e. simultaneous rounds |
-| `U_continuous.yaml` | `activity.mode: continuous`: exponential gaps and length-dependent compose delays (§3) |
-
-A test loads and validates every file in `experiments/`.
+Moved to docs/experiments/nogame.md. A test loads and validates every YAML
+file under `experiments/`, whatever experiment folder it is in.
 
 ## 15. Milestones and acceptance
 
-Each milestone is done when its acceptance command passes and PROGRESS.md is
-updated.
+Each milestone is done when its acceptance passes and PROGRESS.md is updated.
 
-- **M0, runs offline.** Scaffold, config loader + schema + `extends`, RNG, mock
-  provider, engine (queue, wake/post/inject, wait and compose sampling,
-  concurrent wake batches), board rendering, reply parsing, JSONL logs, CLI
-  `run`. Tests: config parsing; rendering for both identity modes; silence and
-  `NEXT` parsing; compose delay math; a wake never sees a post that lands after
-  its time, and in `ticks` mode no agent active at tick k sees a post from tick
-  k; two mock runs with the same seed produce identical `board.jsonl` and
-  `events.jsonl` apart from wall-clock fields. Accept: `npm test` green and
-  `npm run nogame -- run experiments/A_baseline.yaml --provider mock --duration 600`
+- **W0, engine offline.** Scaffold; sim library: config loader + schema +
+  `extends`, RNG, mock provider, engine (queue, wake/post/inject, wait and
+  compose sampling, concurrent wake batches), board rendering, reply parsing,
+  JSONL logs; headless `sim` script. Tests: config parsing; rendering for both
+  identity modes; silence and `NEXT` parsing; compose delay math; a wake never
+  sees a post that lands after its time, and in `ticks` mode no agent active
+  at tick k sees a post from tick k; two mock runs with the same seed produce
+  identical `board.jsonl` and `events.jsonl` apart from wall-clock fields.
+  Accept: `npm run check` green and
+  `npm run sim -- run experiments/nogame/A_baseline.yaml --provider mock --duration 600`
   produces both files with wakes, silences, and posts.
-- **M1, live and watchable.** Anthropic provider with retries and usage; cost
-  estimate and guard; server + viewer with clock, speed, pause, step; `--watch`.
-  Accept: `npm run nogame -- run experiments/A_baseline.yaml --duration 900 --watch`
-  shows posts landing on a live board and ends with cost printed.
-- **M2, all knobs.** Private prompts, injections, identity modes, visibility,
-  output modes, check-back, per-agent activity and compose overrides, mention
-  notifications, chat posting with revision, gate wakes, operator panel, full
-  catalog. Accept: every catalog file runs `--duration 300` under mock;
-  `K_blue --duration 1900 --provider mock` writes an `inject` event at 1800;
-  `P_chat` under mock logs at least one `revise` or `cancel`.
-- **M3, scale.** Batch runner, replay, metrics, both CSVs, prompt caching.
-  Accept: `batch experiments/J_batch.yaml --n 5 --provider mock` then `analyze`
-  yields `batch.csv` with 5 rows and `batch_agents.csv` with 50; a live 900 s
-  run shows nonzero `cache_read_tokens` after the first few wakes.
-- **M4, optional.** LLM judge; an OpenAI-compatible provider plus per-agent
+- **W1, web shell.** Experiments and runs pages; launch a mock run from the
+  browser; live SSE viewer with clock, speed, pause, step; runs archive with
+  replay. Accept: launch a mock A_baseline run in the browser, watch posts
+  land, reopen it later as a replay.
+- **W2, live and guarded.** Anthropic provider with retries and usage; cost
+  estimate, confirm step, and `ARENA_BUDGET_USD` guard; operator panel.
+  Accept: a live 900 s run watched in the browser ends with cost shown.
+- **W3, all knobs and designer.** Private prompts, injections, identity modes,
+  visibility, output modes, check-back, per-agent activity and compose
+  overrides, mention notifications, chat posting with revision, gate wakes;
+  YAML editing with validation and Duplicate; full nogame catalog. Accept:
+  every catalog file runs `--duration 300` under mock; `K_blue --duration 1900
+  --provider mock` writes an `inject` event at 1800; `P_chat` under mock logs
+  at least one `revise` or `cancel`.
+- **W4, scale.** Batch runner (UI and script), replay polish, metrics, both
+  CSVs, prompt caching. Accept: `batch experiments/nogame/J_batch.yaml --n 5
+  --provider mock` then `analyze` yields `batch.csv` with 5 rows and
+  `batch_agents.csv` with 50; a live 900 s run shows nonzero
+  `cache_read_tokens` after the first few wakes.
+- **W5, optional.** LLM judge; an OpenAI-compatible provider plus per-agent
   model override; typing indicators visible to agents as a knob; activity that
   responds to board heat beyond the `NEXT` preference.
 
@@ -495,7 +481,8 @@ updated.
 
 - No game mechanics of any kind, not even optional ones, in v1.
 - No experiment-matrix machinery. One config, one change, one run or batch.
-- No accounts, database, deployment, auth, or multi-user viewer.
+- No accounts, auth, deployment, or multi-user anything: one local operator.
+- No database; experiment configs and run artifacts are plain files.
 - No agent frameworks. The engine should stay readable in one sitting.
 - No enforced threading; agents may refer to post numbers, the harness doesn't care.
 - No feeds, follows, likes, or recommendation. One room, one board. If that is
@@ -513,7 +500,7 @@ updated.
   use the code: it is Python on CAMEL, built around feeds, follows, likes, and
   recommendation, and its action-selection scaffolding is harness-authored text
   the agents read, which rule 2 forbids because it would co-author whatever game
-  emerges. Skim its activation and action-selection code before M0 and note in
+  emerges. Skim its activation and action-selection code before W0 and note in
   PROGRESS.md what was borrowed and what differs.
 - **AI Town**: continuous world engine with asynchronous agent cognition and
   cooldowns. The right shape for a spatial world; unnecessary for a text board.
