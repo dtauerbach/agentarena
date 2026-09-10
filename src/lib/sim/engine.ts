@@ -9,6 +9,7 @@ import type { AgentState } from "./agent";
 import { buildWakeBlocks, makeAgentState } from "./agent";
 import type { BoardPost } from "./board";
 import type { Config } from "./config";
+import type { Pacer } from "./pacer";
 import { applyOutputMode, countWords, parseWake } from "./parse";
 import { makeRng } from "./rng";
 import type { EngineHooks, PostRecord, Provider, Usage } from "./types";
@@ -128,6 +129,7 @@ export async function runEngine(
   config: Config,
   provider: Provider,
   hooks: EngineHooks,
+  opts: { pacer?: Pacer } = {},
 ): Promise<RunSummary> {
   if (config.wake.mode === "gate")
     throw new Error('wake.mode "gate" is not implemented until W3');
@@ -233,6 +235,7 @@ export async function runEngine(
   while (heap.length > 0) {
     const head = heap[0] as SimEvent;
     if (head.time > config.duration) break;
+    if (opts.pacer) await opts.pacer.waitUntil(head.time);
 
     if (head.kind === INJECT) {
       const event = heapPop(heap) as SimEvent & { kind: typeof INJECT };

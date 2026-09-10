@@ -1,0 +1,58 @@
+import { notFound } from "next/navigation";
+import { LaunchForm } from "@/components/launch-form";
+import { loadExperimentConfig, readExperimentYaml } from "@/lib/experiments";
+
+export const dynamic = "force-dynamic";
+
+export default async function ExperimentPage({
+  params,
+}: PageProps<"/experiments/[experiment]/[file]">) {
+  const { experiment, file } = await params;
+  let yamlText: string;
+  let error: string | undefined;
+  let summary:
+    | { name: string; duration: number; agents: number; seed: number }
+    | undefined;
+  try {
+    yamlText = readExperimentYaml(experiment, file);
+  } catch {
+    notFound();
+  }
+  try {
+    const config = loadExperimentConfig(experiment, file);
+    summary = {
+      name: config.name,
+      duration: config.duration,
+      agents: config.agents.count,
+      seed: config.seed,
+    };
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-lg font-semibold">
+          {experiment}/{file}
+        </h1>
+        {summary && (
+          <p className="text-sm text-muted-foreground">
+            {summary.agents} agents · {summary.duration}s · seed {summary.seed}
+          </p>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
+      </div>
+      {summary && (
+        <LaunchForm
+          experiment={experiment}
+          file={file}
+          defaultDuration={summary.duration}
+          defaultSeed={summary.seed}
+        />
+      )}
+      <pre className="overflow-x-auto rounded-lg border bg-muted/30 p-4 text-xs leading-relaxed">
+        {yamlText}
+      </pre>
+    </div>
+  );
+}
