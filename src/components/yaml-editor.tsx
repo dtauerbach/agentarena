@@ -53,7 +53,7 @@ export function YamlEditor({ experiment, file, initial }: Props) {
   return (
     <div className="space-y-2">
       <textarea
-        className="h-96 w-full resize-y rounded-lg border bg-muted/30 p-4 font-mono text-xs leading-relaxed"
+        className="h-96 w-full resize-y rounded-lg border-2 border-input bg-background p-4 font-mono text-xs leading-relaxed focus-visible:border-ring focus-visible:outline-none"
         value={content}
         spellCheck={false}
         onChange={(e) => {

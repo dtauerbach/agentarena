@@ -55,6 +55,13 @@ export default async function ExperimentPage({
           <BatchForm experiment={experiment} file={file} />
         </>
       )}
+      <div className="space-y-1">
+        <h2 className="text-sm font-semibold">Edit YAML</h2>
+        <p className="text-xs text-muted-foreground">
+          This is the live file — type in the box, then Save (validated before
+          writing) or Duplicate it into a new condition.
+        </p>
+      </div>
       <YamlEditor experiment={experiment} file={file} initial={yamlText} />
     </div>
   );

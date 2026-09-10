@@ -86,17 +86,9 @@ export default function Home() {
               </p>
               {hasKey ? (
                 <p className="text-muted-foreground">
-                  Open{" "}
-                  <Link
-                    className="text-primary hover:underline"
-                    href="/experiments/nogame/A_baseline.yaml"
-                  >
-                    A_baseline
-                  </Link>
-                  , pick <code>claude_code</code> (bills your Claude
-                  subscription) or <code>anthropic</code> (API credits, ~$0.31
-                  for a full 7200 s run), and confirm the estimate. Real model
-                  outputs, live on the board.
+                  Open a condition, pick <code>claude_code</code> (bills your
+                  Claude subscription) or <code>anthropic</code> (API credits),
+                  tick the confirm checkbox under the estimate, and hit Run.
                 </p>
               ) : (
                 <p className="text-muted-foreground">
@@ -106,6 +98,12 @@ export default function Home() {
                   <code>anthropic</code> provider.
                 </p>
               )}
+              <Link
+                href="/experiments/nogame/A_baseline.yaml"
+                className="inline-flex h-8 items-center rounded-md border bg-background px-3 text-sm font-medium shadow-xs hover:bg-muted"
+              >
+                Open A_baseline →
+              </Link>
             </div>
           </li>
           <li className="flex gap-3">
@@ -126,7 +124,7 @@ export default function Home() {
         </ol>
       </section>
 
-      <section>
+      <section id="conditions">
         <h2 className="mb-3 text-lg font-semibold">Conditions</h2>
         {experiments.map((group) => (
           <Card key={group.experiment}>
@@ -145,6 +143,12 @@ export default function Home() {
                       href={`/experiments/${file.experiment}/${file.file}`}
                     >
                       {file.file}
+                    </Link>
+                    <Link
+                      className="text-xs text-primary underline underline-offset-2"
+                      href={`/experiments/${file.experiment}/${file.file}`}
+                    >
+                      edit & run
                     </Link>
                     {file.file === "base.yaml" ? (
                       <span className="text-xs text-muted-foreground">
