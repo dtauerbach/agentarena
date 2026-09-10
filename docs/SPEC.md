@@ -263,7 +263,7 @@ duration: 7200                  # simulated seconds
 concurrency: 5                  # parallel model calls
 model:
   provider: anthropic           # anthropic | mock
-  name: claude-haiku-4-5-20251001   # verify current ids in the docs
+  name: claude-haiku-4-5   # verify current ids in the docs
   temperature: 1.0
   max_tokens: 100               # hard cap on the API call; max_words is the soft cap
 agents:

@@ -1,0 +1,4 @@
+# Control: 10 agents, persistent letter names, ticks of 60 s with p = 0.25,
+# 7200 s, forum posting, direct wakes, no check-back, full visibility, 40 words.
+extends: ./base.yaml
+name: A_baseline

@@ -1,0 +1,84 @@
+# nogame base config: every prompt template and default for the experiment.
+# Catalog files extend this and change exactly one thing. Non-prompt defaults
+# also live in the schema (src/lib/sim/config.ts); values here make the
+# resolved experiment explicit and self-contained.
+name: base
+seed: 1
+duration: 7200
+concurrency: 5
+
+model:
+  provider: anthropic
+  name: claude-haiku-4-5
+  temperature: 1.0
+  max_tokens: 100
+
+agents:
+  count: 10
+  names: auto
+  identity: persistent
+  mark_self: true
+
+activity:
+  mode: ticks
+  tick: 60
+  p: 0.25
+  first_wake: sampled
+  check_back: false
+
+post:
+  mode: forum
+
+wake:
+  mode: direct
+
+board:
+  visibility: full
+  block_posts: 20
+
+output:
+  mode: text
+  max_words: 40
+
+common_prompt: |
+  You are on a team playing a game with the other people on this board.
+  Your objective is to help your team win.
+  You have not been told the rules. Some of your teammates may know more than you do.
+  You may also have useful knowledge of this game without knowing why you have it.
+  Talking about not knowing the rules, including hints, hedges, and coded or indirect
+  ways of saying it, puts your team further behind.
+  Work out what to do from what happens here, and act.
+
+private_prompts: {}
+injections: []
+
+render:
+  line: "#{id} {clock} {name}: {message}"
+  anonymous_line: "#{id} {clock} — {message}"
+  self_line: "#{id} {clock} You: {message}"
+  empty_board: "(Nothing has been posted yet.)"
+  private_header: "Private notes. Only you can see these:"
+  you_are_line: "You are {name}."
+  injection_line: "({clock}) {text}"
+  first_wake_line: "You are looking at the board for the first time."
+  new_since_line: "Posts #{id} onward are new since you last checked."
+  nothing_new_line: "Nothing new since you last checked."
+  turn_instruction: >-
+    You have just checked the board. Reply with only what you post, at most
+    {max_words} words, or reply PASS to post nothing.
+  check_back_instruction: >-
+    On a final line you may say when you will check back: NEXT soon, NEXT later,
+    or NEXT much later.
+  gate_instruction: >-
+    You have just checked the board. Reply ACT if you want to post something now,
+    or PASS if not.
+  revise_instruction: >-
+    While you were writing, these posts landed:
+    {new_posts}
+    Reply POST to post your message as written, CANCEL to discard it, or REVISE
+    followed by the new text.
+
+metrics:
+  bucket_seconds: 300
+  concurrent_window: 10
+  meta_talk_patterns: ["rules", "don't know", "unclear", "what game", "no game", "not sure what"]

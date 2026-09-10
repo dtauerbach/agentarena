@@ -1,0 +1,14 @@
+# USD per million tokens. Hand-maintained; verify against
+# https://docs.claude.com/en/docs/about-claude/pricing before trusting
+# a cost estimate with real money. cache_write is the 5-minute-TTL rate.
+models:
+  claude-haiku-4-5:
+    input: 1.00
+    output: 5.00
+    cache_write: 1.25
+    cache_read: 0.10
+  claude-sonnet-4-6:
+    input: 3.00
+    output: 15.00
+    cache_write: 3.75
+    cache_read: 0.30
