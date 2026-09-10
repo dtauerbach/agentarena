@@ -20,3 +20,16 @@ const envSchema = z.object({
 });
 
 export const env = envSchema.parse(process.env);
+
+// Re-read on every call so a key added to .env.local mid-session is picked
+// up without restarting the dev server (the operator drops the file in and
+// the next live run just works).
+export function readApiKey(): string | undefined {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY;
+  if (!existsSync(".env.local")) return undefined;
+  for (const line of readFileSync(".env.local", "utf8").split("\n")) {
+    const match = /^ANTHROPIC_API_KEY=(.+)$/.exec(line.trim());
+    if (match?.[1]) return match[1];
+  }
+  return undefined;
+}

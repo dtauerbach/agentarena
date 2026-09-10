@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { env, readApiKey } from "@/lib/env";
 import { experimentPath } from "@/lib/experiments";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({
       estimate,
       model: config.model.name,
-      hasKey: env.ANTHROPIC_API_KEY !== undefined,
+      hasKey: readApiKey() !== undefined,
     });
   } catch (error) {
     return NextResponse.json(

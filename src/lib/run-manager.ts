@@ -1,7 +1,7 @@
 import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { env } from "@/lib/env";
+import { env, readApiKey } from "@/lib/env";
 import type { ConfigOverrides } from "@/lib/sim/config";
 import { loadConfig } from "@/lib/sim/config";
 import { runEngine } from "@/lib/sim/engine";
@@ -78,7 +78,7 @@ export function launchRun(
   speed: Speed,
 ): string {
   const config = loadConfig(configPath, overrides);
-  const provider = makeProvider(config, env.ANTHROPIC_API_KEY);
+  const provider = makeProvider(config, readApiKey());
   const dir = makeRunDir(config);
   const runId = basename(dir);
   const logger = createRunLogger(dir);

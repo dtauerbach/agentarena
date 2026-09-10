@@ -26,6 +26,12 @@
 
 ## Decisions
 
+- localhost:$PORT home page is a quick-start guide (what nogame is, 1-2-3:
+  mock demo button / live-with-key / change-one-line, annotated catalog).
+- ANTHROPIC_API_KEY is re-read from .env.local on every use (readApiKey in
+  src/lib/env.ts), so dropping the file in mid-session needs no dev-server
+  restart. Other env vars still parse once at startup.
+
 - Prompt caching: two breakpoints — the system prompt and the last complete
   board block (blocks are chunked by absolute post id, so complete blocks
   never change bytes). Sliding last_n visibility gets no board breakpoint.

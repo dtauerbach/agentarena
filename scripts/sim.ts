@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { env } from "../src/lib/env";
+import { env, readApiKey } from "../src/lib/env";
 import { runBatch } from "../src/lib/sim/batch";
 import type { ConfigOverrides } from "../src/lib/sim/config";
 import { loadConfig } from "../src/lib/sim/config";
@@ -101,7 +101,7 @@ function guardBudget(
 async function commandRun(configPath: string, flags: Flags): Promise<void> {
   guardBudget(configPath, flags, 1, flags.yes);
   const config = loadConfig(configPath, flags);
-  const provider = makeProvider(config, env.ANTHROPIC_API_KEY);
+  const provider = makeProvider(config, readApiKey());
   const dir = makeRunDir(config);
   const logger = createRunLogger(dir);
   logger.writeResolvedConfig(config);
@@ -146,7 +146,7 @@ async function commandBatch(configPath: string, flags: Flags): Promise<void> {
         ? makeMockProvider(seed)
         : makeProvider(
             loadConfig(configPath, { ...flags, seed }),
-            env.ANTHROPIC_API_KEY,
+            readApiKey(),
           ),
     onRunDone: (seed, finished, total) =>
       console.log(`run s${seed} done (${finished}/${total})`),
