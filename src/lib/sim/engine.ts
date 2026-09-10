@@ -123,6 +123,7 @@ export type RunSummary = {
   wakes: number;
   silences: number;
   calls: number;
+  usage: Usage;
 };
 
 export async function runEngine(
@@ -144,12 +145,18 @@ export async function runEngine(
   const heap: SimEvent[] = [];
   let seq = 0;
   let postId = 0;
-  const summary: RunSummary = { posts: 0, wakes: 0, silences: 0, calls: 0 };
   const totals: Usage = {
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
+  };
+  const summary: RunSummary = {
+    posts: 0,
+    wakes: 0,
+    silences: 0,
+    calls: 0,
+    usage: totals,
   };
 
   const scheduleWake = (agent: AgentState, time: number): void => {

@@ -2,16 +2,31 @@
 
 ## Status right now
 
-- W0 done: sim library (config+extends, RNG, mock provider, engine, board
-  rendering, parsing, JSONL logs) with 39 green tests.
-- `npm run check` passes; `npm run sim -- run experiments/nogame/A_baseline.yaml
-  --provider mock --duration 600` writes a full run dir under `runs/`.
-- Web app is the scaffold default page at http://localhost:$PORT (dev server in
-  tmux window `dev`).
-- Next: W1 — experiments/runs pages, launch mock runs from the browser, live
-  SSE viewer, replay.
+- W0 + W1 done; W2 code-complete, live acceptance pending an API key.
+- Web app at http://localhost:$PORT: dashboard, experiment pages, launch
+  (mock or anthropic-with-confirm), live paced SSE viewer with speed/pause/
+  step/hold + operator panel, replay of finished runs.
+- `npm run check` green (45 unit tests); `npx playwright test` green (2 e2e).
+- Headless: `npm run sim -- run experiments/nogame/A_baseline.yaml --provider
+  mock --duration 600`; live runs print an estimate and enforce
+  ARENA_BUDGET_USD (default 5, `--yes` to override).
+- **Blocked on operator**: W2 acceptance (live 900 s watched run ending with
+  cost shown) needs `ANTHROPIC_API_KEY` in `.env.local`.
+- Next: W3 — gate wakes, chat revision, mention notifications, remaining
+  knobs, YAML editor, full nogame catalog.
 
 ## Decisions
+
+- Live runs are guarded twice: UI checkbox confirm with an estimate (and a
+  second explicit checkbox when over budget); same guard in the sim script
+  via --yes. Estimate math follows SPEC §12.
+- The engine is paced by an injectable Pacer (speed/pause/step); live runs
+  and file replays stream through the same SSE viewer. Finished live
+  sessions drop out of the registry so reopening a run is a true replay.
+- Events carry two operator-panel extras beyond SPEC §9: wake events include
+  the call's token usage; silence/post/skipped events include next_wake.
+- Anthropic provider uses SDK maxRetries 4 (five attempts) for its
+  429/5xx backoff, then the engine logs provider_error and continues.
 
 - Pivoted CLI-first → web-first (operator request, 2026-09-10). Harness renamed
   `arena`; nogame is experiment #1 in `experiments/nogame/`; docs split into
@@ -46,3 +61,6 @@
 - 2026-09-10: doc pivot + restructure; Next scaffold (Biome/Tailwind/shadcn,
   vitest, tsx); W0 engine + tests green; acceptance run produces
   board/events/calls JSONL. Commits: docs pivot, scaffold, w0.
+- 2026-09-10: W1 web shell (dashboard, launcher, paced SSE viewer, replay,
+  Playwright e2e). W2 anthropic provider + pricing + estimate + budget
+  guard + operator panel; live acceptance deferred until a key exists.

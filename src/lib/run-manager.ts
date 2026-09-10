@@ -1,14 +1,16 @@
 import "server-only";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { env } from "@/lib/env";
 import type { ConfigOverrides } from "@/lib/sim/config";
 import { loadConfig } from "@/lib/sim/config";
 import { runEngine } from "@/lib/sim/engine";
 import { createRunLogger, makeRunDir } from "@/lib/sim/log";
 import type { Pacer, Speed } from "@/lib/sim/pacer";
 import { makePacer } from "@/lib/sim/pacer";
-import { makeMockProvider } from "@/lib/sim/providers/mock";
-import type { Provider } from "@/lib/sim/types";
+import type { ModelRates } from "@/lib/sim/pricing";
+import { loadPricing } from "@/lib/sim/pricing";
+import { makeProvider } from "@/lib/sim/providers";
 
 export type SessionMeta = {
   runId: string;
@@ -16,8 +18,19 @@ export type SessionMeta = {
   seed: number;
   duration: number;
   provider: string;
+  model: string;
   agentNames: string[];
+  privatePrompts: Record<string, string>;
+  rates: ModelRates | null;
 };
+
+function ratesForModel(model: string): ModelRates | null {
+  try {
+    return loadPricing()[model] ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export type StreamMsg =
   | {
@@ -65,12 +78,7 @@ export function launchRun(
   speed: Speed,
 ): string {
   const config = loadConfig(configPath, overrides);
-  let provider: Provider;
-  if (config.model.provider === "mock") {
-    provider = makeMockProvider(config.seed);
-  } else {
-    throw new Error("live provider arrives in W2; run with provider mock");
-  }
+  const provider = makeProvider(config, env.ANTHROPIC_API_KEY);
   const dir = makeRunDir(config);
   const runId = basename(dir);
   const logger = createRunLogger(dir);
@@ -84,7 +92,10 @@ export function launchRun(
       seed: config.seed,
       duration: config.duration,
       provider: config.model.provider,
+      model: config.model.name,
       agentNames: config.agentNames,
+      privatePrompts: config.private_prompts,
+      rates: ratesForModel(config.model.name),
     },
     pacer,
     status: "running",
@@ -165,8 +176,9 @@ export function readRunMeta(dir: string): SessionMeta {
     name: string;
     seed: number;
     duration: number;
-    model: { provider: string };
+    model: { provider: string; name: string };
     agentNames: string[];
+    private_prompts?: Record<string, string>;
   };
   return {
     runId: basename(dir),
@@ -174,7 +186,10 @@ export function readRunMeta(dir: string): SessionMeta {
     seed: resolved.seed,
     duration: resolved.duration,
     provider: resolved.model.provider,
+    model: resolved.model.name,
     agentNames: resolved.agentNames,
+    privatePrompts: resolved.private_prompts ?? {},
+    rates: ratesForModel(resolved.model.name),
   };
 }
 
