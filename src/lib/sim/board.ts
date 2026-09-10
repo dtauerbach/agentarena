@@ -70,3 +70,14 @@ export function renderBoardBlocks(
   }
   return blocks;
 }
+
+// complete board blocks never change bytes again (chunked by absolute id);
+// a sliding last_n window or an empty board has no stable prefix
+export function stableBoardBlockCount(
+  config: Config,
+  posts: readonly BoardPost[],
+): number {
+  if (config.board.visibility !== "full" || posts.length === 0) return 0;
+  const lastId = (posts[posts.length - 1] as BoardPost).id;
+  return Math.floor(lastId / config.board.block_posts);
+}

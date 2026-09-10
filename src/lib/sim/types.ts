@@ -8,6 +8,9 @@ export type Usage = {
 export type ProviderRequest = {
   system: string;
   blocks: string[];
+  // leading user blocks whose bytes are stable across calls (complete board
+  // blocks); the provider may set a cache breakpoint after the last one
+  cacheableBlocks: number;
   maxTokens: number;
   temperature: number;
 };

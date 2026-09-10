@@ -13,17 +13,29 @@ export function makeAnthropicProvider(options: AnthropicOptions): Provider {
   const client = new Anthropic({ apiKey: options.apiKey, maxRetries: 4 });
   return {
     async complete(req) {
+      // two cache breakpoints: the shared system prompt, and the last
+      // complete board block — the shared prefix is then reused across
+      // agents and wakes (SPEC §10)
       const response = await client.messages.create({
         model: options.model,
         max_tokens: req.maxTokens,
         temperature: req.temperature,
-        system: req.system,
+        system: [
+          {
+            type: "text" as const,
+            text: req.system,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ],
         messages: [
           {
             role: "user",
-            content: req.blocks.map((text) => ({
+            content: req.blocks.map((text, i) => ({
               type: "text" as const,
               text,
+              ...(i === req.cacheableBlocks - 1
+                ? { cache_control: { type: "ephemeral" as const } }
+                : {}),
             })),
           },
         ],

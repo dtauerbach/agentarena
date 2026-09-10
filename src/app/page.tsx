@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { listExperiments } from "@/lib/experiments";
 import { getLiveSession, readRunMeta } from "@/lib/run-manager";
-import { listRunDirs, RUNS_DIR } from "@/lib/runs-fs";
+import { listBatchDirs, listRunDirs, RUNS_DIR } from "@/lib/runs-fs";
 
 export const dynamic = "force-dynamic";
 
@@ -47,6 +47,25 @@ export default function Home() {
             <p className="text-sm text-muted-foreground">
               No experiment folders under <code>experiments/</code>.
             </p>
+          )}
+        </div>
+      </section>
+      <section id="batches">
+        <h1 className="mb-3 text-lg font-semibold">Batches</h1>
+        <div className="space-y-1">
+          {listBatchDirs()
+            .slice(0, 10)
+            .map((batchId) => (
+              <Link
+                key={batchId}
+                className="block font-mono text-sm text-primary hover:underline"
+                href={`/batches/${batchId}`}
+              >
+                {batchId}
+              </Link>
+            ))}
+          {listBatchDirs().length === 0 && (
+            <p className="text-sm text-muted-foreground">No batches yet.</p>
           )}
         </div>
       </section>

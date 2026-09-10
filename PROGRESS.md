@@ -10,14 +10,33 @@
 - Headless: `npm run sim -- run experiments/nogame/A_baseline.yaml --provider
   mock --duration 600`; live runs print an estimate and enforce
   ARENA_BUDGET_USD (default 5, `--yes` to override).
-- W3 done: gate wakes, chat revision, mention notifications, full nogame
-  catalog (17 files, all run 300 s under mock), YAML editor with validation
-  and Duplicate in the web UI. 50 unit tests + 3 e2e green.
-- **Blocked on operator**: W2 acceptance (live 900 s watched run ending with
-  cost shown) needs `ANTHROPIC_API_KEY` in `.env.local`.
-- Next: W4 — batch runner, metrics + CSVs, prompt caching.
+- W0–W4 built. W3 fully accepted; W2/W4 accepted except their two live
+  checks (blocked on a key, below).
+- Web app at http://localhost:$PORT: experiments + YAML editor with validate/
+  duplicate, mock/live launcher with cost confirm, live paced SSE viewer +
+  operator panel, replay, mock batches with an analyzed batch.csv table.
+- Headless: `npm run sim -- run|batch|analyze ...`; batch acceptance passes
+  (J_batch n=5 mock → batch.csv 5 rows, batch_agents.csv 50 rows).
+- 54 unit tests + 4 e2e green; `npm run check` green.
+- **Blocked on operator**: needs `ANTHROPIC_API_KEY` in `.env.local` for the
+  two live acceptance checks — W2 (900 s watched live run ends with cost
+  shown) and W4 (live run shows nonzero cache_read_tokens).
+- Next: those two live checks, then W5 (optional: judge, second provider,
+  typing indicators, heat-responsive activity) only if wanted.
 
 ## Decisions
+
+- Prompt caching: two breakpoints — the system prompt and the last complete
+  board block (blocks are chunked by absolute post id, so complete blocks
+  never change bytes). Sliding last_n visibility gets no board breakpoint.
+- UI batches are mock-only and run to completion in the request; live
+  batches go through the guarded script (`npm run sim -- batch ... --yes`).
+- Batch member runs replay at /runs/<batchdir>%2F<rundir>; batch pages
+  auto-analyze on first view.
+- Headless `replay` subcommand dropped — the web viewer replays run dirs;
+  SPEC layout updated accordingly (script is run | batch | analyze).
+- NEXT-preference metrics are re-parsed from stored raws rather than logged
+  as extra event fields.
 
 - Revised posts keep `raw` = the wake output and add `revise_raw` = the
   revision output (rule 4: both exact model outputs are stored; the revision

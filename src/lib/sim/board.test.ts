@@ -69,3 +69,25 @@ describe("board rendering", () => {
     expect(lines[0]).toContain("#8");
   });
 });
+
+describe("stable board blocks (cache prefix)", () => {
+  it("counts only complete blocks under full visibility", async () => {
+    const { stableBoardBlockCount } = await import("./board");
+    const mk = (n: number): BoardPost[] =>
+      Array.from({ length: n }, (_, i) => ({
+        id: i + 1,
+        t_land: 60,
+        agent: "A",
+        message: "x",
+      }));
+    expect(stableBoardBlockCount(base, [])).toBe(0);
+    expect(stableBoardBlockCount(base, mk(19))).toBe(0);
+    expect(stableBoardBlockCount(base, mk(20))).toBe(1);
+    expect(stableBoardBlockCount(base, mk(45))).toBe(2);
+    const lastN = {
+      ...base,
+      board: { ...base.board, visibility: { last_n: 5 } },
+    };
+    expect(stableBoardBlockCount(lastN, mk(45))).toBe(0);
+  });
+});

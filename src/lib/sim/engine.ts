@@ -8,7 +8,12 @@ import {
 import type { AgentState } from "./agent";
 import { buildWakeBlocks, makeAgentState, renderPrivateBlock } from "./agent";
 import type { BoardPost } from "./board";
-import { fill, renderBoardBlocks, renderLine } from "./board";
+import {
+  fill,
+  renderBoardBlocks,
+  renderLine,
+  stableBoardBlockCount,
+} from "./board";
 import type { Config } from "./config";
 import type { Pacer } from "./pacer";
 import {
@@ -210,6 +215,7 @@ export async function runEngine(
     t: number,
     blocks: string[],
     kind: "wake" | "gate" | "revise",
+    cacheableBlocks = 0,
   ): Promise<CallResult> => {
     const started = Date.now();
     summary.calls += 1;
@@ -217,6 +223,7 @@ export async function runEngine(
       const result = await provider.complete({
         system: config.common_prompt,
         blocks,
+        cacheableBlocks,
         maxTokens: config.model.max_tokens,
         temperature: config.model.temperature,
       });
@@ -328,7 +335,13 @@ export async function runEngine(
           renderPrivateBlock(config, agent, posts),
           instruction,
         ];
-        const result = await callProvider(agent, event.time, blocks, "revise");
+        const result = await callProvider(
+          agent,
+          event.time,
+          blocks,
+          "revise",
+          stableBoardBlockCount(config, posts),
+        );
         if (result.ok) {
           const action = parseRevise(result.text);
           if (action.action === "cancel") {
@@ -437,6 +450,7 @@ export async function runEngine(
     // freeze every view before any state changes; each agent sees the board
     // exactly as it stood at its wake time
     const gateMode = config.wake.mode === "gate";
+    const cacheable = stableBoardBlockCount(config, posts);
     const views = batch.map(({ time, agent }) => ({
       time,
       agent,
@@ -465,6 +479,7 @@ export async function runEngine(
             view.time,
             view.gateBlocks,
             "gate",
+            cacheable,
           );
           if (!gate.ok || !parseGate(gate.text))
             return { gate, turn: undefined };
@@ -473,6 +488,7 @@ export async function runEngine(
             view.time,
             view.turnBlocks,
             "wake",
+            cacheable,
           );
           return { gate, turn };
         }
@@ -481,6 +497,7 @@ export async function runEngine(
           view.time,
           view.turnBlocks,
           "wake",
+          cacheable,
         );
         return { gate: undefined, turn };
       },

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { BatchForm } from "@/components/batch-form";
 import { LaunchForm } from "@/components/launch-form";
 import { YamlEditor } from "@/components/yaml-editor";
 import { loadExperimentConfig, readExperimentYaml } from "@/lib/experiments";
@@ -44,12 +45,15 @@ export default async function ExperimentPage({
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
       {summary && (
-        <LaunchForm
-          experiment={experiment}
-          file={file}
-          defaultDuration={summary.duration}
-          defaultSeed={summary.seed}
-        />
+        <>
+          <LaunchForm
+            experiment={experiment}
+            file={file}
+            defaultDuration={summary.duration}
+            defaultSeed={summary.seed}
+          />
+          <BatchForm experiment={experiment} file={file} />
+        </>
       )}
       <YamlEditor experiment={experiment} file={file} initial={yamlText} />
     </div>

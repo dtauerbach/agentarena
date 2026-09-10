@@ -69,9 +69,13 @@ test("live provider requires an estimate and explicit confirmation", async ({
   await expect(page.getByText(/Estimated: ~\d+ calls/)).toBeVisible();
   // no key in this environment: launch stays blocked even after confirming
   await expect(page.getByText(/ANTHROPIC_API_KEY is not set/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Run" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toBeDisabled();
   await page.check("input[type=checkbox]");
-  await expect(page.getByRole("button", { name: "Run" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Run", exact: true }),
+  ).toBeDisabled();
 });
 
 test("yaml editor validates, saves, and duplicates", async ({ page }) => {
@@ -96,4 +100,22 @@ test("yaml editor validates, saves, and duplicates", async ({ page }) => {
   await page.waitForURL(/ZZ_e2e_copy\.yaml/);
   await expect(page.locator("textarea")).toHaveValue(/name: ZZ_e2e_copy/);
   rmSync("experiments/nogame/ZZ_e2e_copy.yaml", { force: true });
+});
+
+test("batch from the browser: run, table, replay a member", async ({
+  page,
+}) => {
+  await page.goto("/experiments/nogame/J_batch.yaml");
+  await page.fill("#batch-n", "3");
+  await page.click("button:has-text('Run batch')");
+  await page.waitForURL(/\/batches\//, { timeout: 60_000 });
+  await expect(page.getByText(/3\/3 runs/)).toBeVisible();
+  // analyzed table renders with one row per seed
+  await expect(page.locator("table tbody tr")).toHaveCount(3);
+  // open one member run as a replay
+  await page.click("a[href*='%2F']");
+  await expect(page.getByText("replay", { exact: true })).toBeVisible();
+  await expect(page.locator("p.whitespace-pre-wrap").first()).toBeVisible({
+    timeout: 20_000,
+  });
 });
