@@ -296,6 +296,8 @@ board:
 output:
   mode: text                    # text | one_word
   max_words: 40
+tools:
+  web: false                    # read-only web search/fetch for every agent; breaks the closed world (see §10)
 common_prompt: ...              # inherited from base
 private_prompts: {}
 injections: []                  # {at, agent: name | [names] | all, text}
@@ -367,6 +369,12 @@ interface Provider {
   agent, wake, and condition, so it cannot vary between conditions), and
   `temperature` is not controllable (the config value is ignored). For
   contamination-free runs use `anthropic`.
+- `tools.web` (off by default) gives agents read-only web search: claude_code
+  runs with only WebSearch/WebFetch enabled and up to 4 turns; anthropic adds
+  the server-side web_search tool (max 3 uses per wake, full search results
+  logged in calls.jsonl). It deliberately breaks the closed-world premise —
+  connected societies can import a real game instead of inventing one — so it
+  is a condition, never a default. Not yet supported on openai.
 - `openai`: OpenAI-compatible chat completions over fetch (OPENAI_API_KEY,
   optional OPENAI_BASE_URL), retries per this section; exists so a society
   can mix in non-Claude agents. Untested against a live key so far.

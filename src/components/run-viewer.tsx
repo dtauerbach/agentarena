@@ -149,8 +149,24 @@ function callId(call: Call): string {
   return "unidentified";
 }
 
+function webSearches(call: Call): number {
+  const raw = call.response.raw as
+    | {
+        usage?: { server_tool_use?: { web_search_requests?: number } };
+        modelUsage?: Record<string, { webSearchRequests?: number }>;
+      }
+    | undefined;
+  const direct = raw?.usage?.server_tool_use?.web_search_requests ?? 0;
+  const viaSubagents = Object.values(raw?.modelUsage ?? {}).reduce(
+    (n, m) => n + (m.webSearchRequests ?? 0),
+    0,
+  );
+  return Math.max(direct, viaSubagents);
+}
+
 function Receipt({ call }: { call: Call }) {
   const usage = call.response.usage;
+  const searches = webSearches(call);
   return (
     <details className="mt-1 rounded border bg-muted/30 px-2 py-1 text-xs">
       <summary className="cursor-pointer select-none text-muted-foreground">
@@ -159,6 +175,7 @@ function Receipt({ call }: { call: Call }) {
         {usage
           ? ` · ${usage.inputTokens} in / ${usage.outputTokens} out tok`
           : ""}
+        {searches > 0 ? ` · ${searches} web searches` : ""}
       </summary>
       <div className="mt-2 space-y-2">
         <div>

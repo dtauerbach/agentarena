@@ -63,6 +63,15 @@
   Mock runs stay all-mock regardless of overrides. Verified live:
   "haiku vs sonnet" run with B and E on sonnet-4-6, receipts confirm
   per-agent routing. Estimates use the default model's rates when mixed.
+- Internet access knob (2026-09-11): `tools.web` (off by default) gives
+  agents read-only web search/fetch — claude_code via
+  --tools/--allowedTools "WebSearch,WebFetch" with 4 turns (both flags
+  needed: availability and permission are separate gates in -p mode);
+  anthropic via the server-side web_search tool (3 uses/wake). Verified: a
+  flagged call really searches (modelUsage.webSearchRequests; the top-level
+  server_tool_use counter misses subagent searches — receipts sum both).
+  W_connected variation ships it; the closed-world caveat is documented in
+  SPEC §10 and the designer checkbox. Openai provider: unsupported for now.
 - Next: iterate nogame conditions with the designer; W5 extras if wanted.
 
 ## Decisions

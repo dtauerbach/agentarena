@@ -9,19 +9,29 @@ import type { Provider } from "../types";
 // conditions — and `temperature` is not controllable (the config value is
 // ignored). Our system prompt replaces Claude Code's entirely; tools,
 // settings files, and thinking are disabled; output is capped via env.
-export function makeClaudeCodeProvider(options: { model: string }): Provider {
+export function makeClaudeCodeProvider(options: {
+  model: string;
+  webTools?: boolean;
+}): Provider {
   return {
     complete(req) {
+      // web on: only the two read-only web tools, a few turns to use them;
+      // web off: no tools, single turn. Either way: no filesystem, no code
+      // execution, no MCP.
       const args = [
         "-p",
         "--system-prompt",
         req.system,
         "--tools",
-        "",
+        options.webTools === true ? "WebSearch,WebFetch" : "",
+        // availability and permission are separate gates in -p mode
+        ...(options.webTools === true
+          ? ["--allowedTools", "WebSearch,WebFetch"]
+          : []),
         "--restricted",
         "--strict-mcp-config",
         "--max-turns",
-        "1",
+        options.webTools === true ? "4" : "1",
         "--no-session-persistence",
         "--model",
         options.model,

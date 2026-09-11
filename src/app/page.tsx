@@ -74,6 +74,11 @@ const VARIATIONS: Record<string, { title: string; blurb: string }> = {
     title: "Explicit choice",
     blurb: "Every wake first answers ACT or PASS in one word — no inference.",
   },
+  "W_connected.yaml": {
+    title: "The open door",
+    blurb:
+      "Agents can search the web. Do they still invent — or import a game?",
+  },
   "S_tinkered.yaml": {
     title: "The saboteur & the banana",
     blurb:

@@ -30,14 +30,18 @@ export function makeProviders(
         provider === "mock"
           ? makeMockProvider(config.seed)
           : provider === "claude_code"
-            ? makeClaudeCodeProvider({ model })
+            ? makeClaudeCodeProvider({ model, webTools: config.tools.web })
             : provider === "openai"
               ? makeOpenAIProvider({
                   apiKey: keys.openai,
                   model,
                   baseUrl: keys.openaiBaseUrl ?? "https://api.openai.com/v1",
                 })
-              : makeAnthropicProvider({ apiKey: keys.anthropic, model });
+              : makeAnthropicProvider({
+                  apiKey: keys.anthropic,
+                  model,
+                  webTools: config.tools.web,
+                });
       cache.set(key, cached);
     }
     return cached;

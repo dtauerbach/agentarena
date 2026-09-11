@@ -6,6 +6,10 @@ export type AnthropicOptions = {
   // or an `ant auth login` OAuth profile); a subscription login needs no key
   apiKey: string | undefined;
   model: string;
+  // read-only server-side web search; the basic tool variant for broad
+  // model compatibility. Search happens on Anthropic's servers and the full
+  // response (queries, results, citations) lands in calls.jsonl.
+  webTools?: boolean;
 };
 
 // Retries for 429/5xx/connection errors are the SDK's exponential backoff:
@@ -25,6 +29,17 @@ export function makeAnthropicProvider(options: AnthropicOptions): Provider {
         model: options.model,
         max_tokens: req.maxTokens,
         temperature: req.temperature,
+        ...(options.webTools === true
+          ? {
+              tools: [
+                {
+                  type: "web_search_20250305" as const,
+                  name: "web_search" as const,
+                  max_uses: 3,
+                },
+              ],
+            }
+          : {}),
         system: [
           {
             type: "text" as const,

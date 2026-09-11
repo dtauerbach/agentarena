@@ -108,6 +108,7 @@ export const configSchema = z.strictObject({
   wake: z
     .strictObject({ mode: z.enum(["direct", "gate"]).default("direct") })
     .prefault({}),
+  tools: z.strictObject({ web: z.boolean().default(false) }).prefault({}),
   rooms: z
     .record(
       z.string().regex(/^[\w-]+$/),
@@ -277,6 +278,16 @@ export function loadConfig(
   for (const name of Object.keys(config.compose.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`compose.per_agent: unknown agent "${name}"`);
+  if (config.tools.web) {
+    const providers = new Set([
+      config.model.provider,
+      ...Object.values(config.model.per_agent).map(
+        (o) => o.provider ?? config.model.provider,
+      ),
+    ]);
+    if (providers.has("openai"))
+      throw new Error("tools.web: not supported for the openai provider yet");
+  }
   if (config.model.name === "" && config.model.provider !== "mock")
     throw new Error(
       `model.name: required for provider "${config.model.provider}"`,

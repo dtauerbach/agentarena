@@ -35,6 +35,7 @@ export default async function ExperimentPage({
     initial = {
       commonPrompt: config.common_prompt,
       wakeMode: config.wake.mode,
+      toolsWeb: config.tools.web,
       modelPerAgent: config.model.per_agent,
       models: Object.keys(loadPricing()),
       defaultModel: config.model.name,

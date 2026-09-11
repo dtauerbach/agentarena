@@ -16,6 +16,7 @@ type ModelOverride = {
 export type DesignerInitial = {
   commonPrompt: string;
   wakeMode: "direct" | "gate";
+  toolsWeb: boolean;
   modelPerAgent: Record<string, { provider?: string; name: string }>;
   models: string[];
   defaultModel: string;
@@ -45,6 +46,7 @@ export function Designer({ experiment, file, initial }: Props) {
   );
   const [injections, setInjections] = useState<Injection[]>(initial.injections);
   const [wakeMode, setWakeMode] = useState(initial.wakeMode);
+  const [toolsWeb, setToolsWeb] = useState(initial.toolsWeb);
   const [modelOverrides, setModelOverrides] = useState<ModelOverride[]>(
     Object.entries(initial.modelPerAgent).map(([agent, value]) => ({
       agent,
@@ -74,6 +76,7 @@ export function Designer({ experiment, file, initial }: Props) {
     if (JSON.stringify(cleanInjections) !== JSON.stringify(initial.injections))
       patch.injections = cleanInjections;
     if (wakeMode !== initial.wakeMode) patch.wake_mode = wakeMode;
+    if (toolsWeb !== initial.toolsWeb) patch.tools_web = toolsWeb;
     const overrides = Object.fromEntries(
       modelOverrides
         .filter((o) => o.name.trim() !== "")
@@ -419,6 +422,15 @@ export function Designer({ experiment, file, initial }: Props) {
               explicit two-step: ACT/PASS first, then write (2× input cost)
             </option>
           </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={toolsWeb}
+            onChange={(e) => setToolsWeb(e.target.checked)}
+          />
+          internet access (read-only web search — breaks the closed world:
+          agents may import a real game instead of inventing one)
         </label>
         <label
           htmlFor="designer-agents"

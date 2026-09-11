@@ -32,6 +32,7 @@ const patchSchema = z.object({
       )
       .optional(),
     wake_mode: z.enum(["direct", "gate"]).optional(),
+    tools_web: z.boolean().optional(),
     model_per_agent: z
       .record(
         z.string(),
@@ -64,6 +65,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       doc.setIn(["injections"], patch.injections);
     if (patch.wake_mode !== undefined)
       doc.setIn(["wake", "mode"], patch.wake_mode);
+    if (patch.tools_web !== undefined)
+      doc.setIn(["tools", "web"], patch.tools_web);
     if (patch.model_per_agent !== undefined) {
       if (Object.keys(patch.model_per_agent).length === 0)
         doc.deleteIn(["model", "per_agent"]);

@@ -1,0 +1,11 @@
+# A with the door open: agents can search and read the public web
+# (read-only; no filesystem, no code, no MCP). The closed-world premise is
+# deliberately broken — the question flips from "do they invent a game?" to
+# "do they import one from the culture instead?" Extra tokens per wake when
+# they actually search; slightly larger output cap for tool-using turns.
+extends: ./base.yaml
+name: W_connected
+tools:
+  web: true
+model:
+  max_tokens: 300
