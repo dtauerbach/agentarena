@@ -21,6 +21,15 @@ describe("wake parsing", () => {
     expect(reply.silent).toBe(false);
   });
 
+  it("a reply whose first line is PASS is silence, rambling included", () => {
+    expect(
+      parseWake("PASS\n\nI'll wait to see what others do.", false).silent,
+    ).toBe(true);
+    expect(parseWake("Pass.\nObserving for now.", false).silent).toBe(true);
+    // but PASS mid-text is a message
+    expect(parseWake("I say we PASS this round", false).silent).toBe(false);
+  });
+
   it("strips and records a trailing NEXT line when check_back is on", () => {
     const reply = parseWake("RED\nNEXT much later", true);
     expect(reply).toEqual({

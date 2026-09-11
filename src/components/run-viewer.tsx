@@ -574,7 +574,7 @@ export function RunViewer({ runId }: { runId: string }) {
                     )}
                     {debug && (
                       <span className="font-mono tabular-nums">
-                        #{item.post.seq}
+                        #{item.post.seq ?? item.post.id}
                       </span>
                     )}
                     {debug && item.post.stale_count > 0 && (
