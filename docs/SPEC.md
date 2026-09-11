@@ -131,8 +131,10 @@ preference (default `later` when absent). What remains is the message;
 `output.mode` then applies.
 
 **Gate call** (`wake.mode: gate`). The first call uses `gate_instruction` in
-place of `turn_instruction`. Reply `ACT` → a second call with
-`turn_instruction`; anything else → silence, gate reply logged raw. This doubles
+place of `turn_instruction`. Reply `ACT`
+(alone or as the first line) → a second call with `turn_instruction`;
+anything else → silence, gate reply logged raw. The gate makes the post/pass
+decision an explicit one-word act instead of something inferred from prose. This doubles
 the input cost of a wake; it exists because the framing changes silence rates,
 not to save money.
 

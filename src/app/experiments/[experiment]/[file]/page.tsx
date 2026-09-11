@@ -33,6 +33,7 @@ export default async function ExperimentPage({
     };
     initial = {
       commonPrompt: config.common_prompt,
+      wakeMode: config.wake.mode,
       privatePrompts: config.private_prompts,
       injections: config.injections.map((injection) => ({
         at: injection.at,

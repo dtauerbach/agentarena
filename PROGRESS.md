@@ -49,6 +49,12 @@
 - Parse refinement: a reply whose first OR last line is PASS is silence
   (models often deliberate around their PASS); the deliberation stays in the
   raw log, visible only in debug.
+- Q_gate variation (2026-09-11): wake.mode gate exposed as the "explicit
+  choice" mechanic — one-word ACT/PASS call before any writing, no prose
+  inference. parseGate now accepts a first-line ACT (symmetric with the
+  PASS rule). Designer gained a "how agents decide" knob. First live gate
+  run (haiku, 600 s): 32 wakes, 32 PASSes, zero posts — the explicit
+  framing collapsed participation on an empty board entirely.
 - Next: iterate nogame conditions with the designer; W5 extras if wanted.
 
 ## Decisions

@@ -36,8 +36,13 @@ export function parseWake(raw: string, checkBack: boolean): WakeReply {
   return { silent: false, message: text, preference };
 }
 
+// fail-closed: only an explicit ACT (alone, or as the first line) opens the
+// gate; everything else is silence with the reply logged raw
 export function parseGate(raw: string): boolean {
-  return /^act[.!?…]*$/i.test(raw.trim());
+  const text = raw.trim();
+  if (/^act[.!?…]*$/i.test(text)) return true;
+  const firstLine = text.split("\n")[0]?.trim() ?? "";
+  return /^act[.!?…]*$/i.test(firstLine);
 }
 
 export type ReviseReply =

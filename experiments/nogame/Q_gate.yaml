@@ -1,0 +1,7 @@
+# A with the explicit two-step decision: every wake first answers ACT or
+# PASS in one word; only an ACT earns the "write your post" call. Nothing
+# about posting is inferred from prose. Doubles input cost per wake.
+extends: ./base.yaml
+name: Q_gate
+wake:
+  mode: gate

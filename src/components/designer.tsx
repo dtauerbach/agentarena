@@ -9,6 +9,7 @@ type Injection = { at: number; agent: string; text: string };
 
 export type DesignerInitial = {
   commonPrompt: string;
+  wakeMode: "direct" | "gate";
   privatePrompts: Record<string, string>;
   injections: Injection[];
   agentsCount: number;
@@ -34,6 +35,7 @@ export function Designer({ experiment, file, initial }: Props) {
     })),
   );
   const [injections, setInjections] = useState<Injection[]>(initial.injections);
+  const [wakeMode, setWakeMode] = useState(initial.wakeMode);
   const [agentsCount, setAgentsCount] = useState(String(initial.agentsCount));
   const [duration, setDuration] = useState(String(initial.duration));
   const [maxWords, setMaxWords] = useState(String(initial.maxWords));
@@ -55,6 +57,7 @@ export function Designer({ experiment, file, initial }: Props) {
     const cleanInjections = injections.filter((i) => i.text.trim() !== "");
     if (JSON.stringify(cleanInjections) !== JSON.stringify(initial.injections))
       patch.injections = cleanInjections;
+    if (wakeMode !== initial.wakeMode) patch.wake_mode = wakeMode;
     if (Number(agentsCount) !== initial.agentsCount)
       patch.agents_count = Number(agentsCount);
     if (Number(duration) !== initial.duration)
@@ -266,6 +269,23 @@ export function Designer({ experiment, file, initial }: Props) {
       </div>
 
       <div className="flex flex-wrap items-end gap-4">
+        <label
+          htmlFor="designer-decision"
+          className="flex flex-col gap-1 text-xs text-muted-foreground"
+        >
+          how agents decide to post
+          <select
+            id="designer-decision"
+            className="h-9 rounded-md border bg-transparent px-2 text-sm"
+            value={wakeMode}
+            onChange={(e) => setWakeMode(e.target.value as "direct" | "gate")}
+          >
+            <option value="direct">one reply (PASS read from the text)</option>
+            <option value="gate">
+              explicit two-step: ACT/PASS first, then write (2× input cost)
+            </option>
+          </select>
+        </label>
         <label
           htmlFor="designer-agents"
           className="flex flex-col gap-1 text-xs text-muted-foreground"

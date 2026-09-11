@@ -59,6 +59,7 @@ letters; the table is explicit about which is which.
 | `N_cautious.yaml` | `private_prompts.G`: "You'd rather say nothing than say something wrong." |
 | `O_names.yaml` | `agents.names`: ten ordinary first names (operator's choice; placeholder list ships). Nothing else differs. Run as a batch and read `batch_agents.csv` grouped by name. |
 | `P_chat.yaml` | `post.mode: chat` |
+| `Q_gate.yaml` | `wake.mode: gate`: the post/pass decision is an explicit one-word ACT/PASS call before any writing — nothing inferred from prose. Doubles input cost. |
 | `T_turns.yaml` | `activity.p: 1`, `first_wake: zero`: everyone posts every tick, i.e. simultaneous rounds |
 | `U_continuous.yaml` | `activity.mode: continuous`: exponential gaps and length-dependent compose delays (§3) |
 

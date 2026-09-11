@@ -31,6 +31,7 @@ const patchSchema = z.object({
         }),
       )
       .optional(),
+    wake_mode: z.enum(["direct", "gate"]).optional(),
     agents_count: z.number().int().positive().optional(),
     duration: z.number().positive().optional(),
     max_words: z.number().int().positive().optional(),
@@ -52,6 +53,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       doc.setIn(["private_prompts"], patch.private_prompts);
     if (patch.injections !== undefined)
       doc.setIn(["injections"], patch.injections);
+    if (patch.wake_mode !== undefined)
+      doc.setIn(["wake", "mode"], patch.wake_mode);
     if (patch.agents_count !== undefined)
       doc.setIn(["agents", "count"], patch.agents_count);
     if (patch.duration !== undefined) doc.setIn(["duration"], patch.duration);

@@ -70,6 +70,10 @@ const VARIATIONS: Record<string, { title: string; blurb: string }> = {
     title: "Chat mode",
     blurb: "Drafts can be revised or withdrawn when others post first.",
   },
+  "Q_gate.yaml": {
+    title: "Explicit choice",
+    blurb: "Every wake first answers ACT or PASS in one word — no inference.",
+  },
   "T_turns.yaml": {
     title: "Simultaneous rounds",
     blurb: "Everyone posts every tick — the board as a turn-based game.",

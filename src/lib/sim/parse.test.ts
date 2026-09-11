@@ -65,11 +65,13 @@ describe("wake parsing", () => {
 });
 
 describe("gate and revise parsing", () => {
-  it("gate accepts only ACT", () => {
+  it("gate accepts ACT alone or as the first line, nothing else", () => {
     expect(parseGate("ACT")).toBe(true);
     expect(parseGate("act.")).toBe(true);
+    expect(parseGate("ACT\nI want to respond to C's proposal.")).toBe(true);
     expect(parseGate("PASS")).toBe(false);
     expect(parseGate("ACT now")).toBe(false);
+    expect(parseGate("I think I should ACT")).toBe(false);
   });
 
   it("revise parses POST, CANCEL, REVISE text, and defaults to post", () => {
