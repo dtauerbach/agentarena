@@ -463,6 +463,11 @@ export function Designer({ experiment, file, initial }: Props) {
 
       <div className="flex flex-wrap items-center gap-2 border-t pt-3">
         <Button onClick={() => void save(false)}>Save</Button>
+        {file === "A_baseline.yaml" && (
+          <span className="text-xs text-amber-600 dark:text-amber-400">
+            this is the control — prefer “Save as” to keep it pristine
+          </span>
+        )}
         {message && (
           <span className="text-sm text-muted-foreground">{message}</span>
         )}

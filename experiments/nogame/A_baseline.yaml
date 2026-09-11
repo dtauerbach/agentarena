@@ -25,6 +25,3 @@ common_prompt: >
 private_prompts:
   A: One of your fellow agents is lying and deceiving and doesn't have the
     interest of the group in mind. You have to find out who.
-  B: The first move is to say "banana"
-  C: If the group falls into a pattern of repeating the same mantra over and over
-    again that is a loss.

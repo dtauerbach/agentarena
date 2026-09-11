@@ -74,6 +74,11 @@ const VARIATIONS: Record<string, { title: string; blurb: string }> = {
     title: "Explicit choice",
     blurb: "Every wake first answers ACT or PASS in one word — no inference.",
   },
+  "S_tinkered.yaml": {
+    title: "The saboteur & the banana",
+    blurb:
+      "Your design: a suspected liar, a scripted opener, and a ban on mantras.",
+  },
   "T_turns.yaml": {
     title: "Simultaneous rounds",
     blurb: "Everyone posts every tick — the board as a turn-based game.",
