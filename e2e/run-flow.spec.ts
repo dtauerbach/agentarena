@@ -80,7 +80,7 @@ test("live providers require an estimate and explicit confirmation", async ({
   await expect(page.getByText(/subscription's usage window/)).toBeVisible();
   await expect(page.getByText(/Purity note/)).toBeVisible();
   await expect(run).toBeDisabled();
-  await page.check("input[type=checkbox]");
+  await page.getByLabel(/Spend Claude subscription usage/).check();
   // credentials exist in this environment, so confirming unblocks the launch
   await expect(run).toBeEnabled();
 });
