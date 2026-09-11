@@ -32,6 +32,8 @@ const CONDITIONS: Record<string, string> = {
 
 export default function Home() {
   const experiments = listExperiments();
+  const nogame = experiments.filter((g) => g.experiment === "nogame");
+  const others = experiments.filter((g) => g.experiment !== "nogame");
   const runs = listRunDirs().slice(0, 20);
   const batches = listBatchDirs().slice(0, 10);
   const hasKey = hasClaudeCodeCredentials() || hasAnthropicCredentials();
@@ -125,8 +127,13 @@ export default function Home() {
       </section>
 
       <section id="conditions">
-        <h2 className="mb-3 text-lg font-semibold">Conditions</h2>
-        {experiments.map((group) => (
+        <h2 className="mb-3 text-lg font-semibold">Variations</h2>
+        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
+          Each variation is the baseline society plus one changed thing. Open
+          one to tweak its prompts in the designer, run it, or save it as a new
+          variation.
+        </p>
+        {nogame.map((group) => (
           <Card key={group.experiment}>
             <CardHeader>
               <CardTitle className="text-base">{group.experiment}</CardTitle>
@@ -143,12 +150,6 @@ export default function Home() {
                       href={`/experiments/${file.experiment}/${file.file}`}
                     >
                       {file.file}
-                    </Link>
-                    <Link
-                      className="text-xs text-primary underline underline-offset-2"
-                      href={`/experiments/${file.experiment}/${file.file}`}
-                    >
-                      edit & run
                     </Link>
                     {file.file === "base.yaml" ? (
                       <span className="text-xs text-muted-foreground">
@@ -167,6 +168,26 @@ export default function Home() {
             </CardContent>
           </Card>
         ))}
+        {others.length > 0 && (
+          <details className="mt-3 rounded-lg border p-3">
+            <summary className="cursor-pointer select-none text-sm font-medium text-muted-foreground">
+              Other experiments ({others.map((g) => g.experiment).join(", ")})
+            </summary>
+            <div className="mt-2 space-y-1 text-sm">
+              {others.flatMap((group) =>
+                group.files.map((file) => (
+                  <Link
+                    key={`${group.experiment}/${file.file}`}
+                    className="block font-mono text-primary hover:underline"
+                    href={`/experiments/${file.experiment}/${file.file}`}
+                  >
+                    {group.experiment}/{file.file}
+                  </Link>
+                )),
+              )}
+            </div>
+          </details>
+        )}
       </section>
 
       <section id="batches">

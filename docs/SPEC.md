@@ -389,7 +389,20 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   simulated time and are logged as events (`inject` with `operator: true`,
   `operator_mute`, `room_join`, …) — a moderated run is documented rather
   than seed-reproducible.
-- **Viewer**: a page that looks like a message board. Header: run name,
+- **Viewer**: two modes. **Watch** (default) is the public transcript only —
+  what the room saw, on the paced clock. **Debug** (toggle) reveals the
+  machinery: silences inline, stale counts, the operator panel and moderator
+  controls, a per-run audit box (provider, model, every call with wall-clock
+  time, latency, tokens, and the server-issued call id from the raw provider
+  payload), and a per-post receipt expanding to the exact request and raw
+  model output. The receipts exist so the operator can verify real models
+  answered — ids cross-check against provider records; mock calls label
+  themselves.
+- **Designer**: the front door to a condition is prompt-first — the universal
+  prompt, per-agent private notes, mid-run reveals, and a few knobs — saved
+  as a minimal patch to the same YAML file (comments preserved). Raw YAML
+  stays available behind an "advanced" fold.
+- **Viewer chrome**: a page that looks like a message board. Header: run name,
   simulated clock, speed control (1x, 10x, 60x, max), pause, step (one event).
   Posts appear at their landing time, stamped `H:MM:SS`, each agent a stable
   color. Auto-scroll with a "hold" toggle. Operator panel (right side,

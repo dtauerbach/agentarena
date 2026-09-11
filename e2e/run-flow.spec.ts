@@ -14,7 +14,9 @@ test("launch a mock run, watch posts land, pause, finish, replay", async ({
   await page.waitForURL(/\/runs\//);
   await expect(page.getByText("live", { exact: true })).toBeVisible();
 
-  // operator panel is on by default and clearly marked
+  // watch mode is clean; the operator panel appears with the debug toggle
+  await expect(page.getByText(/Operator only/)).toHaveCount(0);
+  await page.click("button:has-text('debug')");
   await expect(page.getByText(/Operator only/)).toBeVisible();
   await expect(
     page.getByText(/last checked|composing since|not seen yet/).first(),
@@ -85,25 +87,29 @@ test("live providers require an estimate and explicit confirmation", async ({
 
 test("yaml editor validates, saves, and duplicates", async ({ page }) => {
   await page.goto("/experiments/nogame/A_baseline.yaml");
-  const textarea = page.locator("textarea");
+  await page.click("summary:has-text('Raw YAML')");
+  const textarea = page.locator("details textarea");
   const original = await textarea.inputValue();
 
   // invalid edit is rejected with a field-naming error and not saved
   await textarea.fill(`${original}\nactivity:\n  p: 3\n`);
-  await page.click("button:has-text('Save')");
+  await page.click("details button:has-text('Save')");
   await expect(page.getByText(/activity\.p/)).toBeVisible();
 
   // valid edit saves
   await textarea.fill(original.replace("name: A_baseline", "name: A_baseline"));
   await textarea.fill(original);
-  await page.click("button:has-text('Save')");
+  await page.click("details button:has-text('Save')");
   await expect(page.getByText("saved", { exact: true })).toBeVisible();
 
   // duplicate creates a new condition file and navigates to it
   await page.fill('input[placeholder="new-file.yaml"]', "ZZ_e2e_copy.yaml");
-  await page.click("button:has-text('Duplicate')");
+  await page.click("details button:has-text('Duplicate')");
   await page.waitForURL(/ZZ_e2e_copy\.yaml/);
-  await expect(page.locator("textarea")).toHaveValue(/name: ZZ_e2e_copy/);
+  await page.click("summary:has-text('Raw YAML')");
+  await expect(page.locator("details textarea")).toHaveValue(
+    /name: ZZ_e2e_copy/,
+  );
   rmSync("experiments/nogame/ZZ_e2e_copy.yaml", { force: true });
 });
 
@@ -138,6 +144,7 @@ test("moderator: inject, mute, stop a live run", async ({ page }) => {
   });
   const { runId } = (await response.json()) as { runId: string };
   await page.goto(`/runs/${runId}`);
+  await page.click("button:has-text('debug')");
   await expect(page.getByText(/Moderator — actions apply now/)).toBeVisible();
 
   // inject to all agents; it shows up in the operator panel
@@ -163,4 +170,36 @@ test("moderator: inject, mute, stop a live run", async ({ page }) => {
   await expect(page.getByText("done", { exact: true })).toBeVisible({
     timeout: 15_000,
   });
+});
+
+test("designer: edit prompts in the form and save as a new variation", async ({
+  page,
+}) => {
+  await page.goto("/experiments/nogame/A_baseline.yaml");
+  await expect(page.getByText("The universal prompt")).toBeVisible();
+
+  // add a private note through the form
+  await page.click("button:has-text('+ private note')");
+  await page.fill(
+    'input[placeholder="what only this agent is told…"]',
+    "You secretly love the color RED.",
+  );
+  // tweak a knob too
+  await page.fill("#designer-words", "30");
+
+  await page.fill(
+    'input[placeholder="save as new variation…"]',
+    "ZZ_form_test",
+  );
+  await page.click("button:has-text('Save as')");
+  await page.waitForURL(/ZZ_form_test\.yaml/);
+
+  // the saved file is a minimal patch over what it extends
+  await page.click("summary:has-text('Raw YAML')");
+  const yaml = await page.locator("details textarea").inputValue();
+  expect(yaml).toContain("extends: ./base.yaml");
+  expect(yaml).toContain("You secretly love the color RED.");
+  expect(yaml).toContain("max_words: 30");
+  expect(yaml).toContain("name: ZZ_form_test");
+  rmSync("experiments/nogame/ZZ_form_test.yaml", { force: true });
 });

@@ -34,7 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               href="/#conditions"
               className="text-muted-foreground hover:text-foreground"
             >
-              conditions
+              variations
             </Link>
             <Link
               href="/#batches"

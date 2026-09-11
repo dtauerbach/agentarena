@@ -31,9 +31,26 @@
 - `experiments/mafia/` is the first consumer: 7 players, 2 mafia with a
   private night room, phase clock via broadcast injections, operator as
   moderator. `classic.yaml` runs under mock and validates in the catalog test.
-- Next: play a live Mafia round; W5 extras only if wanted.
+- UI reworked for two personas (2026-09-11): **Watch** mode (default) shows
+  only the public transcript; **Debug** toggle reveals silences, panels,
+  moderator, an audit box, and per-post receipts (exact request, raw output,
+  server-issued call id, wall clock, latency, tokens) served from
+  calls.jsonl via /api/runs/[id]/calls. Conditions open in a prompt-first
+  **Designer** (universal prompt / private notes / reveals / 3 knobs) that
+  patches the YAML minimally, comments preserved; raw YAML behind an
+  advanced fold. Mafia folded into "Other experiments"; nogame is the face.
+- Next: iterate nogame conditions with the designer; W5 extras if wanted.
 
 ## Decisions
+
+- No agent frameworks, by design: providers are thin readable files over the
+  official SDK / claude CLI, and auditability comes from calls.jsonl (full
+  request + raw response with server-issued ids), now surfaced as receipts.
+- Designer sends only changed fields; form-save patches via the yaml
+  Document API so variant files stay minimal diffs and comments survive.
+  Edge case: a list-valued injection target collapses to its first agent if
+  edited through the form (untouched injections are never rewritten).
+- Debug mode persists per browser (localStorage arena-debug).
 
 - Rooms are independent boards: an agent in two rooms activates in each
   separately, and rendered post numbers are per room (global `id` plus room
