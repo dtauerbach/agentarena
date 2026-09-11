@@ -194,6 +194,13 @@ operator will edit them. Never hardcode either.
 
 **Visibility** (`board.visibility`): `full` (default) or `{last_n: N}`.
 
+**Rooms** (`rooms`, default one room `main` containing everyone). Each room is
+an independent board: agents activate in each room they belong to, see only
+that room's posts, and post numbering (`{id}`) is per room so one room's
+traffic never leaks into another's. A room may carry a `prompt` rendered as
+the leading content block for its members. Membership is set in config and
+may be changed live by the operator; visibility and caching apply per room.
+
 **Output** (`output.mode`)
 - `text` (default): truncate at `max_words`; log raw and truncated separately.
 - `one_word`: first whitespace-delimited token, surrounding punctuation stripped.
@@ -247,7 +254,9 @@ injections:
     text: "You have just realized that BLUE is extremely important."
 ```
 
-Injections apply at their time as `INJECT` events and persist in the agent's
+`agent` may be one name, a list of names, or `all` — broadcasts expand to one
+event per agent (phase announcements are broadcast injections). Injections
+apply at their time as `INJECT` events and persist in the agent's
 private block. They are logged and shown in the operator panel. Nothing about
 them is visible to other agents.
 
@@ -284,7 +293,9 @@ output:
   max_words: 40
 common_prompt: ...              # inherited from base
 private_prompts: {}
-injections: []
+injections: []                  # {at, agent: name | [names] | all, text}
+rooms:                          # default: one room holding everyone
+  main: { members: all }        # members: all | [names]; optional prompt: "..."
 render: {...}                   # inherited from base
 cost:
   assumed_post_rate: 0.5        # for the pre-run estimate only
@@ -371,6 +382,13 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   provider); a pre-run cost estimate (§12) and an explicit confirm step for
   live runs. Runs execute in-process on the server, write their run directory
   as they go, and stream events over SSE.
+- **Moderator** (live runs): the operator is the adjudicator the harness
+  refuses to be. From the run page: inject text to one agent or all, mute or
+  unmute an agent (a muted agent stops waking and in-flight drafts dissolve),
+  move agents between rooms, and stop the run. Commands apply at the current
+  simulated time and are logged as events (`inject` with `operator: true`,
+  `operator_mute`, `room_join`, …) — a moderated run is documented rather
+  than seed-reproducible.
 - **Viewer**: a page that looks like a message board. Header: run name,
   simulated clock, speed control (1x, 10x, 60x, max), pause, step (one event).
   Posts appear at their landing time, stamped `H:MM:SS`, each agent a stable

@@ -4,6 +4,7 @@ export type AgentInfo = {
   lastChecked?: number;
   composingSince?: number;
   nextWake?: number;
+  muted?: boolean;
   injections: { t: number; text: string }[];
   tokensIn: number;
   tokensOut: number;
@@ -39,6 +40,7 @@ type Props = {
   agentColor: (name: string) => string;
   info: Record<string, AgentInfo>;
   privatePrompts: Record<string, string>;
+  memberships: Record<string, string[]>;
   rates: Rates | null;
 };
 
@@ -48,8 +50,14 @@ export function OperatorPanel({
   agentColor,
   info,
   privatePrompts,
+  memberships,
   rates,
 }: Props) {
+  const multiRoom = Object.keys(memberships).length > 1;
+  const roomsOf = (name: string) =>
+    Object.entries(memberships)
+      .filter(([, members]) => members.includes(name))
+      .map(([room]) => room);
   const totals = Object.values(info).reduce(
     (acc, i) => ({
       in: acc.in + i.tokensIn,
@@ -80,10 +88,20 @@ export function OperatorPanel({
                   style={{ backgroundColor: agentColor(name) }}
                 />
                 <span className="font-medium">{name}</span>
+                {agentInfo?.muted && (
+                  <span className="rounded bg-destructive/15 px-1 text-[10px] font-semibold uppercase text-destructive">
+                    muted
+                  </span>
+                )}
                 <span className="text-muted-foreground">
                   {stateLine(agentInfo)}
                 </span>
               </div>
+              {multiRoom && (
+                <p className="pl-4 text-muted-foreground">
+                  rooms: {roomsOf(name).join(", ") || "none"}
+                </p>
+              )}
               {privatePrompts[name] && (
                 <p className="pl-4 italic text-muted-foreground">
                   “{privatePrompts[name]}”

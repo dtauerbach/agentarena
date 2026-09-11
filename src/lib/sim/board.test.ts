@@ -4,7 +4,14 @@ import { renderBoardBlocks, renderClock, renderLine } from "./board";
 import { loadConfig } from "./config";
 
 const base = loadConfig("experiments/nogame/base.yaml");
-const post: BoardPost = { id: 3, t_land: 3723, agent: "B", message: "RED" };
+const post: BoardPost = {
+  id: 3,
+  seq: 3,
+  room: "main",
+  t_land: 3723,
+  agent: "B",
+  message: "RED",
+};
 
 describe("board rendering", () => {
   it("renders the simulated clock as H:MM:SS", () => {
@@ -37,6 +44,8 @@ describe("board rendering", () => {
   it("chunks blocks by absolute post id so early blocks stay stable", () => {
     const posts: BoardPost[] = Array.from({ length: 45 }, (_, i) => ({
       id: i + 1,
+      seq: i + 1,
+      room: "main",
       t_land: 60 * (i + 1),
       agent: "A",
       message: `m${i + 1}`,
@@ -48,7 +57,14 @@ describe("board rendering", () => {
     // same board later, more posts: first block bytes unchanged
     const more = [
       ...posts,
-      { id: 46, t_land: 2760, agent: "A", message: "m46" },
+      {
+        id: 46,
+        seq: 46,
+        room: "main",
+        t_land: 2760,
+        agent: "A",
+        message: "m46",
+      },
     ];
     expect(renderBoardBlocks(base, more, "B")[0]).toBe(blocks[0]);
   });
@@ -56,6 +72,8 @@ describe("board rendering", () => {
   it("last_n visibility shows only the tail", () => {
     const posts: BoardPost[] = Array.from({ length: 10 }, (_, i) => ({
       id: i + 1,
+      seq: i + 1,
+      room: "main",
       t_land: 60,
       agent: "A",
       message: `m${i + 1}`,
@@ -76,6 +94,8 @@ describe("stable board blocks (cache prefix)", () => {
     const mk = (n: number): BoardPost[] =>
       Array.from({ length: n }, (_, i) => ({
         id: i + 1,
+        seq: i + 1,
+        room: "main",
         t_land: 60,
         agent: "A",
         message: "x",

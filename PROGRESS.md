@@ -23,10 +23,30 @@
   subscription; the default), `anthropic` (API credits; org currently has
   none — the `ant auth login` OAuth profile authenticates fine but Anthropic
   bills raw /v1/messages to API credits, not subscriptions).
-- Next: W5 only if wanted (judge, OpenAI-compatible provider, typing
-  indicators, heat-responsive activity).
+- G1–G3 generalization done (2026-09-11): broadcast injections
+  (`agent: all` or a list), rooms (independent boards with membership and
+  per-room numbering + optional room prompt), and live operator moderation
+  (inject/mute/unmute/join/leave/stop from the run page, logged as events).
+  61 unit tests + 5 e2e green.
+- `experiments/mafia/` is the first consumer: 7 players, 2 mafia with a
+  private night room, phase clock via broadcast injections, operator as
+  moderator. `classic.yaml` runs under mock and validates in the catalog test.
+- Next: play a live Mafia round; W5 extras only if wanted.
 
 ## Decisions
+
+- Rooms are independent boards: an agent in two rooms activates in each
+  separately, and rendered post numbers are per room (global `id` plus room
+  `seq` in board.jsonl) so traffic volume doesn't leak across rooms.
+- Adjudication stays out of the engine: the operator is the moderator (G3).
+  Operator commands queue via /api/runs/[id]/operator, apply at the current
+  sim time, and are logged; operator-free runs keep the byte-identical
+  guarantee. An automated moderator-agent knob was considered and postponed
+  (it crosses hard rule 1; should be its own experiment class if ever).
+- Muting cancels in-flight drafts at landing ("muted" cancel events) and
+  suppresses future wakes; unmute reschedules fresh wakes in each room.
+- Pacer waits take an isInterrupted callback (200 ms poll) instead of a poke
+  channel, so operator commands land within a beat even mid-pause.
 
 - Subscription billing: raw API calls are NOT covered by a claude.ai
   subscription (confirmed empirically 2026-09-10: OAuth `user:inference`

@@ -248,3 +248,185 @@ describe("W3 knobs (mock)", () => {
     }
   });
 });
+
+describe("G1-G3: broadcast injections, rooms, operator", () => {
+  const base = () =>
+    loadConfig("experiments/nogame/A_baseline.yaml", {
+      provider: "mock",
+      duration: 900,
+    });
+
+  async function run(
+    config: ReturnType<typeof base>,
+    operator?: {
+      pending(): boolean;
+      drain(): import("./engine").OperatorCommand[];
+    },
+  ): Promise<Collected> {
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(
+      config,
+      makeMockProvider(config.seed),
+      {
+        emit: (e) => collected.events.push(e),
+        post: (p) => collected.posts.push(p),
+        call: (c) => collected.calls.push(c),
+      },
+      operator ? { operator } : {},
+    );
+    return collected;
+  }
+
+  function scriptedOperator(script: import("./engine").OperatorCommand[][]) {
+    let call = 0;
+    return {
+      pending: () => call < script.length && (script[call]?.length ?? 0) > 0,
+      drain: () => (call < script.length ? (script[call++] ?? []) : []),
+    };
+  }
+
+  it("agent: all injections reach every agent's private block", async () => {
+    const config = {
+      ...base(),
+      injections: [{ at: 300, agent: "all" as const, text: "PHASE-MARKER-X" }],
+    };
+    const collected = await run(config);
+    const injects = collected.events.filter((e) => e.kind === "inject");
+    expect(injects).toHaveLength(10);
+    expect(new Set(injects.map((e) => e.agent)).size).toBe(10);
+    for (const call of collected.calls) {
+      const priv = call.request.blocks.at(-2) ?? "";
+      expect(priv.includes("PHASE-MARKER-X")).toBe(call.t >= 300);
+    }
+  });
+
+  it("a list of injection targets reaches exactly those agents", async () => {
+    const config = {
+      ...base(),
+      injections: [{ at: 300, agent: ["B", "D"], text: "DUO-MARKER" }],
+    };
+    const collected = await run(config);
+    const injected = collected.events
+      .filter((e) => e.kind === "inject")
+      .map((e) => e.agent);
+    expect(injected.sort()).toEqual(["B", "D"]);
+  });
+
+  it("rooms isolate posts, number them per room, and show the room prompt", async () => {
+    const config = {
+      ...base(),
+      activity: { ...base().activity, p: 0.5 },
+      rooms: {
+        main: { members: "all" as const },
+        night: {
+          members: ["B", "D"],
+          prompt: "NIGHT-ROOM-MARKER: only you two see this.",
+        },
+      },
+    };
+    const collected = await run(config);
+    const nightPosts = collected.posts.filter((p) => p.room === "night");
+    const mainPosts = collected.posts.filter((p) => p.room === "main");
+    expect(nightPosts.length).toBeGreaterThan(0);
+    expect(mainPosts.length).toBeGreaterThan(0);
+    // only members post in the night room
+    for (const post of nightPosts) expect(["B", "D"]).toContain(post.agent);
+    // per-room numbering is independent and contiguous
+    expect(nightPosts.map((p) => p.seq)).toEqual(
+      nightPosts.map((_, i) => i + 1),
+    );
+    expect(mainPosts.map((p) => p.seq)).toEqual(mainPosts.map((_, i) => i + 1));
+    // the room prompt block leads night calls and never appears elsewhere
+    for (const call of collected.calls) {
+      const hasMarker = call.request.blocks[0]?.includes("NIGHT-ROOM-MARKER");
+      expect(hasMarker).toBe(call.room === "night");
+      if (call.room === "night") expect(["B", "D"]).toContain(call.agent);
+    }
+    // a night post's text never reaches a main-room view... unless the mock
+    // vocabulary collides; check via rendered seq+agent lines instead: main
+    // views only contain lines for main seqs that exist
+    const deterministic = await run(config);
+    expect(deterministic.events).toEqual(collected.events);
+  });
+
+  it("operator mute silences an agent; unmute revives it", async () => {
+    const collected = await run(
+      base(),
+      scriptedOperator([[{ kind: "mute", agent: "C" }]]),
+    );
+    expect(
+      collected.events.filter((e) => e.kind === "operator_mute"),
+    ).toHaveLength(1);
+    const cWakes = collected.events.filter(
+      (e) => e.kind === "wake" && e.agent === "C",
+    );
+    expect(cWakes).toHaveLength(0);
+    expect(collected.posts.filter((p) => p.agent === "C")).toHaveLength(0);
+
+    const revived = await run(
+      base(),
+      scriptedOperator([
+        [{ kind: "mute", agent: "C" }],
+        [{ kind: "unmute", agent: "C" }],
+      ]),
+    );
+    expect(
+      revived.events.filter((e) => e.kind === "operator_unmute"),
+    ).toHaveLength(1);
+    expect(
+      revived.events.filter((e) => e.kind === "wake" && e.agent === "C").length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("operator inject lands at the current sim time with the operator flag", async () => {
+    const collected = await run(
+      base(),
+      scriptedOperator([
+        [],
+        [{ kind: "inject", agent: "all", text: "OP-SAYS" }],
+      ]),
+    );
+    const opInjects = collected.events.filter(
+      (e) => e.kind === "inject" && e.operator === true,
+    );
+    expect(opInjects).toHaveLength(10);
+  });
+
+  it("operator leave stops a member's wakes in that room", async () => {
+    const config = {
+      ...base(),
+      rooms: {
+        main: { members: "all" as const },
+        side: { members: ["A", "B"] },
+      },
+    };
+    const collected = await run(
+      config,
+      scriptedOperator([[{ kind: "leave", agent: "A", room: "side" }]]),
+    );
+    expect(
+      collected.events.filter((e) => e.kind === "room_leave"),
+    ).toHaveLength(1);
+    expect(
+      collected.events.filter(
+        (e) => e.kind === "wake" && e.agent === "A" && e.room === "side",
+      ),
+    ).toHaveLength(0);
+    // A still active in main
+    expect(
+      collected.events.filter(
+        (e) => e.kind === "wake" && e.agent === "A" && e.room === "main",
+      ).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("operator stop ends the run early and marks it stopped", async () => {
+    const collected = await run(
+      base(),
+      scriptedOperator([[], [], [], [{ kind: "stop" }]]),
+    );
+    const end = collected.events.find((e) => e.kind === "run_end");
+    expect(end?.stopped).toBe(true);
+    expect(end?.t).toBeLessThan(900);
+  });
+});

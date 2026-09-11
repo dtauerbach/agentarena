@@ -124,3 +124,43 @@ test("batch from the browser: run, table, replay a member", async ({
     timeout: 20_000,
   });
 });
+
+test("moderator: inject, mute, stop a live run", async ({ page }) => {
+  // slow speed keeps the run alive while we moderate
+  const response = await page.request.post("/api/runs", {
+    data: {
+      experiment: "nogame",
+      file: "A_baseline.yaml",
+      provider: "mock",
+      duration: 7200,
+      speed: 1,
+    },
+  });
+  const { runId } = (await response.json()) as { runId: string };
+  await page.goto(`/runs/${runId}`);
+  await expect(page.getByText(/Moderator — actions apply now/)).toBeVisible();
+
+  // inject to all agents; it shows up in the operator panel
+  await page.fill(
+    'input[placeholder="private injection text…"]',
+    "OP-PHASE-TEST",
+  );
+  await page.click("button:has-text('Inject')");
+  await expect(page.getByText(/OP-PHASE-TEST/).first()).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // mute agent A; the panel marks it
+  await page.selectOption('select[aria-label="room agent"]', "A");
+  await page.click("button:has-text('Mute')");
+  await expect(page.getByText("muted", { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // stop the run
+  page.on("dialog", (dialog) => dialog.accept());
+  await page.click("button:has-text('stop')");
+  await expect(page.getByText("done", { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+});

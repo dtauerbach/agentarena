@@ -1,7 +1,12 @@
 import type { Config } from "./config";
 
+// `id` is the global landing sequence (log identity); `seq` numbers posts
+// within their room and is what agents see as {id}, so one room's traffic
+// never leaks into another room's numbering
 export type BoardPost = {
   id: number;
+  seq: number;
+  room: string;
   t_land: number;
   agent: string;
   message: string;
@@ -30,7 +35,7 @@ export function renderLine(
   viewer: string,
 ): string {
   const vars = {
-    id: post.id,
+    id: post.seq,
     clock: renderClock(post.t_land),
     name: post.agent,
     message: post.message,
@@ -43,7 +48,7 @@ export function renderLine(
   return fill(config.render.line, vars);
 }
 
-// Blocks are chunked by absolute post id so a given block's bytes never change
+// Blocks are chunked by room sequence so a given block's bytes never change
 // once full — that is what makes the shared prefix cacheable across agents.
 export function renderBoardBlocks(
   config: Config,
@@ -59,7 +64,7 @@ export function renderBoardBlocks(
   const blocks: string[] = [];
   let currentSlot = -1;
   for (const post of visible) {
-    const slot = Math.floor((post.id - 1) / size);
+    const slot = Math.floor((post.seq - 1) / size);
     const line = renderLine(config, post, viewer);
     if (slot !== currentSlot) {
       blocks.push(line);
@@ -71,13 +76,13 @@ export function renderBoardBlocks(
   return blocks;
 }
 
-// complete board blocks never change bytes again (chunked by absolute id);
+// complete board blocks never change bytes again (chunked by room seq);
 // a sliding last_n window or an empty board has no stable prefix
 export function stableBoardBlockCount(
   config: Config,
   posts: readonly BoardPost[],
 ): number {
   if (config.board.visibility !== "full" || posts.length === 0) return 0;
-  const lastId = (posts[posts.length - 1] as BoardPost).id;
-  return Math.floor(lastId / config.board.block_posts);
+  const lastSeq = (posts[posts.length - 1] as BoardPost).seq;
+  return Math.floor(lastSeq / config.board.block_posts);
 }

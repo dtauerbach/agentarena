@@ -9,6 +9,7 @@ import {
 } from "@/lib/env";
 import type { ConfigOverrides } from "@/lib/sim/config";
 import { loadConfig } from "@/lib/sim/config";
+import type { OperatorCommand } from "@/lib/sim/engine";
 import { runEngine } from "@/lib/sim/engine";
 import { createRunLogger, makeRunDir } from "@/lib/sim/log";
 import type { Pacer, Speed } from "@/lib/sim/pacer";
@@ -26,8 +27,21 @@ export type SessionMeta = {
   model: string;
   agentNames: string[];
   privatePrompts: Record<string, string>;
+  rooms: Record<string, string[]>;
   rates: ModelRates | null;
 };
+
+function resolveRooms(
+  rooms: Record<string, { members: "all" | string[] }>,
+  agentNames: string[],
+): Record<string, string[]> {
+  return Object.fromEntries(
+    Object.entries(rooms).map(([name, room]) => [
+      name,
+      room.members === "all" ? agentNames : room.members,
+    ]),
+  );
+}
 
 function ratesForModel(model: string): ModelRates | null {
   try {
@@ -58,6 +72,7 @@ export type LiveSession = {
   status: "running" | "done" | "error";
   buffer: StreamMsg[];
   subscribers: Set<Subscriber>;
+  operatorQueue: OperatorCommand[];
 };
 
 type Registry = {
@@ -102,12 +117,14 @@ export function launchRun(
       model: config.model.name,
       agentNames: config.agentNames,
       privatePrompts: config.private_prompts,
+      rooms: resolveRooms(config.rooms, config.agentNames),
       rates: ratesForModel(config.model.name),
     },
     pacer,
     status: "running",
     buffer: [],
     subscribers: new Set(),
+    operatorQueue: [],
   };
   registry().live.set(runId, session);
   const hooks = {
@@ -121,7 +138,11 @@ export function launchRun(
     },
     call: logger.hooks.call.bind(logger.hooks),
   };
-  void runEngine(config, provider, hooks, { pacer })
+  const operator = {
+    pending: () => session.operatorQueue.length > 0,
+    drain: () => session.operatorQueue.splice(0, session.operatorQueue.length),
+  };
+  void runEngine(config, provider, hooks, { pacer, operator })
     .then(async () => {
       session.status = "done";
       broadcast(session, { type: "status", status: "done" });
@@ -186,6 +207,7 @@ export function readRunMeta(dir: string): SessionMeta {
     model: { provider: string; name: string };
     agentNames: string[];
     private_prompts?: Record<string, string>;
+    rooms?: Record<string, { members: "all" | string[] }>;
   };
   return {
     runId: basename(dir),
@@ -196,6 +218,10 @@ export function readRunMeta(dir: string): SessionMeta {
     model: resolved.model.name,
     agentNames: resolved.agentNames,
     privatePrompts: resolved.private_prompts ?? {},
+    rooms: resolveRooms(
+      resolved.rooms ?? { main: { members: "all" } },
+      resolved.agentNames,
+    ),
     rates: ratesForModel(resolved.model.name),
   };
 }

@@ -28,7 +28,12 @@ export function estimateCost(
     config.activity.mode === "ticks"
       ? (config.duration / config.activity.tick) * config.activity.p
       : config.duration / config.activity.mean_gap;
-  const wakes = Math.round(config.agents.count * wakesPerAgent);
+  const memberships = Object.values(config.rooms).reduce(
+    (n, room) =>
+      n + (room.members === "all" ? config.agents.count : room.members.length),
+    0,
+  );
+  const wakes = Math.round(memberships * wakesPerAgent);
   const postTokens =
     config.output.max_words * TOKENS_PER_WORD + PER_POST_OVERHEAD_TOKENS;
   const systemTokens = Math.ceil(config.common_prompt.length / 4);

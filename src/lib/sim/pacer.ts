@@ -2,8 +2,11 @@ export type Speed = number | "max";
 
 export type Pacer = {
   // resolves when simulated time t is reached at the current speed;
-  // resolves immediately at speed "max"; blocks while paused (step releases one)
-  waitUntil(t: number): Promise<void>;
+  // resolves immediately at speed "max"; blocks while paused (step releases
+  // one). isInterrupted is polled during waits — when it turns true the wait
+  // returns early WITHOUT reaching t, so the caller can service whatever
+  // interrupted it (operator commands) and call waitUntil again.
+  waitUntil(t: number, isInterrupted?: () => boolean): Promise<void>;
   setSpeed(speed: Speed): void;
   pause(): void;
   resume(): void;
@@ -26,19 +29,21 @@ export function makePacer(initialSpeed: Speed): Pacer {
     new Promise<void>((resolve) => setTimeout(resolve, ms));
 
   return {
-    async waitUntil(t) {
+    async waitUntil(t, isInterrupted) {
       for (;;) {
+        if (isInterrupted?.()) return; // caller drains and calls again
         if (paused) {
           const released = await new Promise<boolean>((resolve) => {
             stepSignal = () => resolve(true);
             const poll = () => {
-              if (!paused) resolve(false);
+              if (!paused || isInterrupted?.()) resolve(false);
               else if (stepSignal) setTimeout(poll, POLL_MS);
             };
             setTimeout(poll, POLL_MS);
           });
           stepSignal = null;
           if (released) break; // one step: process this event now
+          if (isInterrupted?.()) return;
           // re-anchor after resume so paused wall time doesn't count
           simAnchor = simTime;
           wallAnchor = Date.now();

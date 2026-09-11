@@ -1,0 +1,4 @@
+# The playable starting point: 7 players, 2 mafia, 3 day/night cycles,
+# operator as moderator. Duplicate this file to vary anything.
+extends: ./base.yaml
+name: classic

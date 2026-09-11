@@ -99,6 +99,15 @@ export const configSchema = z.strictObject({
   wake: z
     .strictObject({ mode: z.enum(["direct", "gate"]).default("direct") })
     .prefault({}),
+  rooms: z
+    .record(
+      z.string().regex(/^[\w-]+$/),
+      z.strictObject({
+        members: z.union([z.literal("all"), z.array(z.string())]),
+        prompt: z.string().optional(),
+      }),
+    )
+    .default({ main: { members: "all" } }),
   board: z
     .strictObject({
       visibility: z
@@ -122,7 +131,7 @@ export const configSchema = z.strictObject({
     .array(
       z.strictObject({
         at: z.number().nonnegative(),
-        agent: z.string(),
+        agent: z.union([z.string(), z.array(z.string())]),
         text: z.string(),
       }),
     )
@@ -236,9 +245,20 @@ export function loadConfig(
   for (const name of Object.keys(config.private_prompts))
     if (!agentNames.includes(name))
       throw new Error(`private_prompts: unknown agent "${name}"`);
-  for (const inj of config.injections)
-    if (!agentNames.includes(inj.agent))
-      throw new Error(`injections: unknown agent "${inj.agent}"`);
+  if (agentNames.includes("all"))
+    throw new Error('agents.names: "all" is reserved for broadcast targets');
+  for (const inj of config.injections) {
+    const targets = Array.isArray(inj.agent) ? inj.agent : [inj.agent];
+    for (const target of targets)
+      if (target !== "all" && !agentNames.includes(target))
+        throw new Error(`injections: unknown agent "${target}"`);
+  }
+  for (const [roomName, room] of Object.entries(config.rooms)) {
+    if (room.members === "all") continue;
+    for (const member of room.members)
+      if (!agentNames.includes(member))
+        throw new Error(`rooms.${roomName}: unknown agent "${member}"`);
+  }
   for (const name of Object.keys(config.activity.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`activity.per_agent: unknown agent "${name}"`);

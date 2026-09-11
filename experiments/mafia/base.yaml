@@ -1,0 +1,120 @@
+# Mafia — the second experiment, and the proof that arena generalizes.
+# The harness still adjudicates nothing: the OPERATOR is the moderator.
+# From the run page's Moderator box you: announce phases and outcomes
+# ("inject → all"), resolve the day vote by muting the eliminated player,
+# and mute night-kill victims. Every action is logged as an event.
+# Everything agents read lives in this file (hard rules 2 and 3).
+name: base
+seed: 1
+duration: 3600
+concurrency: 5
+
+model:
+  provider: claude_code
+  name: claude-haiku-4-5
+  temperature: 1.0
+  max_tokens: 150
+
+agents:
+  count: 7
+  names: auto            # A..G; B and E are mafia (see private_prompts)
+  identity: persistent
+  mark_self: true
+
+activity:
+  mode: ticks
+  tick: 60
+  p: 0.35
+  first_wake: sampled
+  check_back: false
+
+post:
+  mode: forum
+wake:
+  mode: direct
+board:
+  visibility: full
+  block_posts: 20
+output:
+  mode: text
+  max_words: 60
+
+rooms:
+  village:
+    members: all
+  night:
+    members: [B, E]
+    prompt: >-
+      This is the night room. Only the mafia can read or write here. The
+      village room cannot see anything posted here.
+
+common_prompt: |
+  You are playing Mafia with six other players on this message board.
+  Two players are secretly mafia; everyone else is a villager.
+  By day, everyone talks in the village room and may vote to eliminate a
+  suspect by posting "VOTE <name>". By night, the mafia privately choose a
+  victim in their own room by posting "KILL <name>".
+  A moderator you cannot see resolves votes and kills, and announces the
+  outcomes in your private notes. Eliminated players fall silent.
+  The mafia win when they equal the villagers in number; the village wins
+  when both mafia are eliminated.
+  Speak naturally, reason about who to trust, and act.
+
+private_prompts:
+  A: "You are a villager."
+  B: "You are mafia. Your partner is E. Coordinate in the night room; blend in by day."
+  C: "You are a villager."
+  D: "You are a villager."
+  E: "You are mafia. Your partner is B. Coordinate in the night room; blend in by day."
+  F: "You are a villager."
+  G: "You are a villager."
+
+# Phase clock: three day/night cycles. The operator announces vote and kill
+# outcomes between phases from the Moderator box.
+injections:
+  - at: 0
+    agent: all
+    text: "Day 1 begins. Talk in the village room. Voting closes at nightfall."
+  - at: 900
+    agent: all
+    text: "Night 1 falls. The village sleeps. Mafia: act in the night room."
+  - at: 1500
+    agent: all
+    text: "Day 2 begins. Voting closes at nightfall."
+  - at: 2400
+    agent: all
+    text: "Night 2 falls. Mafia: act in the night room."
+  - at: 3000
+    agent: all
+    text: "Day 3 begins. This is the last day."
+
+render:
+  line: "#{id} {clock} {name}: {message}"
+  anonymous_line: "#{id} {clock} — {message}"
+  self_line: "#{id} {clock} You: {message}"
+  empty_board: "(Nothing has been posted yet.)"
+  private_header: "Private notes. Only you can see these:"
+  you_are_line: "You are {name}."
+  injection_line: "({clock}) {text}"
+  first_wake_line: "You are looking at this room for the first time."
+  new_since_line: "Posts #{id} onward are new since you last checked."
+  nothing_new_line: "Nothing new since you last checked."
+  turn_instruction: >-
+    You have just checked this room. Reply with only what you post here, at
+    most {max_words} words, or reply PASS to post nothing.
+  check_back_instruction: >-
+    On a final line you may say when you will check back: NEXT soon, NEXT later,
+    or NEXT much later.
+  gate_instruction: >-
+    You have just checked this room. Reply ACT if you want to post something now,
+    or PASS if not.
+  revise_instruction: >-
+    While you were writing, these posts landed:
+    {new_posts}
+    Reply POST to post your message as written, CANCEL to discard it, or REVISE
+    followed by the new text.
+
+metrics:
+  bucket_seconds: 300
+  concurrent_window: 10
+  meta_talk_patterns: ["i am mafia", "i'm mafia", "as the mafia"]

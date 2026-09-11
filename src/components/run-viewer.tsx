@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ModeratorBox } from "@/components/moderator-box";
 import type { AgentInfo, Rates } from "@/components/operator-panel";
 import { OperatorPanel } from "@/components/operator-panel";
 import { Badge } from "@/components/ui/badge";
@@ -15,11 +16,14 @@ type Meta = {
   model: string;
   agentNames: string[];
   privatePrompts: Record<string, string>;
+  rooms: Record<string, string[]>;
   rates: Rates | null;
 };
 
 type Post = {
   id: number;
+  seq: number;
+  room: string;
   t_land: number;
   agent: string;
   message: string;
@@ -94,6 +98,12 @@ function applyEvent(
         { t: data.t, text: String(data.text ?? "") },
       ];
       break;
+    case "operator_mute":
+      entry.muted = true;
+      break;
+    case "operator_unmute":
+      entry.muted = false;
+      break;
     default:
       return info;
   }
@@ -106,6 +116,7 @@ export function RunViewer({ runId }: { runId: string }) {
   const [mode, setMode] = useState<"live" | "replay">("replay");
   const [posts, setPosts] = useState<Post[]>([]);
   const [agentInfo, setAgentInfo] = useState<Record<string, AgentInfo>>({});
+  const [memberships, setMemberships] = useState<Record<string, string[]>>({});
   const [counts, setCounts] = useState({ wakes: 0, silences: 0 });
   const [status, setStatus] = useState<"running" | "done" | "error">("running");
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -135,6 +146,7 @@ export function RunViewer({ runId }: { runId: string }) {
       const msg = JSON.parse(event.data as string) as Msg;
       if (msg.type === "hello") {
         setMeta(msg.meta);
+        setMemberships(msg.meta.rooms ?? {});
         setMode(msg.mode);
         setSpeedState(msg.state.speed);
         setPaused(msg.state.paused);
@@ -153,6 +165,19 @@ export function RunViewer({ runId }: { runId: string }) {
         if (msg.data.kind === "silence")
           setCounts((c) => ({ ...c, silences: c.silences + 1 }));
         setAgentInfo((prev) => applyEvent(prev, msg.data));
+        if (msg.data.kind === "room_join" || msg.data.kind === "room_leave") {
+          const { agent, room } = msg.data as unknown as {
+            agent: string;
+            room: string;
+          };
+          const joining = msg.data.kind === "room_join";
+          setMemberships((prev) => ({
+            ...prev,
+            [room]: joining
+              ? [...(prev[room] ?? []), agent]
+              : (prev[room] ?? []).filter((name) => name !== agent),
+          }));
+        }
         pace.current = { ...pace.current, t: msg.data.t, wallAt: Date.now() };
       } else if (msg.type === "status") {
         if (msg.status === "done" || msg.status === "error") {
@@ -273,9 +298,42 @@ export function RunViewer({ runId }: { runId: string }) {
           >
             operator
           </Button>
+          {mode === "live" && status === "running" && (
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Stop this run? Drafts in flight are logged as unfinished.",
+                  )
+                )
+                  void fetch(`/api/runs/${runId}/operator`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ kind: "stop" }),
+                  });
+              }}
+            >
+              stop
+            </Button>
+          )}
         </div>
       </div>
 
+      {mode === "live" && status === "running" && meta && (
+        <ModeratorBox
+          runId={runId}
+          agentNames={meta.agentNames}
+          rooms={Object.keys(memberships)}
+          muted={Object.fromEntries(
+            meta.agentNames.map((name) => [
+              name,
+              agentInfo[name]?.muted === true,
+            ]),
+          )}
+        />
+      )}
       <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 flex-1 space-y-2">
           {posts.map((post) => (
@@ -295,7 +353,12 @@ export function RunViewer({ runId }: { runId: string }) {
                   >
                     {post.agent}
                   </span>
-                  <span className="font-mono tabular-nums">#{post.id}</span>
+                  <span className="font-mono tabular-nums">#{post.seq}</span>
+                  {Object.keys(memberships).length > 1 && (
+                    <span className="rounded bg-muted px-1 font-mono">
+                      {post.room}
+                    </span>
+                  )}
                   <span className="font-mono tabular-nums">
                     {renderClock(post.t_land)}
                   </span>
@@ -329,6 +392,7 @@ export function RunViewer({ runId }: { runId: string }) {
             agentColor={agentColor}
             info={agentInfo}
             privatePrompts={meta.privatePrompts}
+            memberships={memberships}
             rates={meta.rates}
           />
         )}

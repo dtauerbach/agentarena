@@ -24,6 +24,8 @@ export type Provider = {
 // one line of board.jsonl; snake_case because these are the logged fields
 export type PostRecord = {
   id: number;
+  seq: number;
+  room: string;
   t_land: number;
   t_wake: number;
   agent: string;
@@ -44,6 +46,7 @@ export type EventRecord = { t: number; kind: string } & Record<string, unknown>;
 export type CallRecord = {
   t: number;
   agent: string;
+  room: string;
   kind: "wake" | "gate" | "revise";
   request: { system: string; blocks: string[] };
   response: { text: string; usage: Usage; raw?: unknown } | { error: string };

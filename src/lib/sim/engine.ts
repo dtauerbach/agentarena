@@ -5,15 +5,10 @@ import {
   sampleFirstWake,
   sampleWait,
 } from "./activity";
-import type { AgentState } from "./agent";
-import { buildWakeBlocks, makeAgentState, renderPrivateBlock } from "./agent";
+import type { AgentState, RoomAgentState, RoomInfo } from "./agent";
+import { buildWakeBlocks, makeAgentState, makeRoomState } from "./agent";
 import type { BoardPost } from "./board";
-import {
-  fill,
-  renderBoardBlocks,
-  renderLine,
-  stableBoardBlockCount,
-} from "./board";
+import { fill, renderLine, stableBoardBlockCount } from "./board";
 import type { Config } from "./config";
 import type { Pacer } from "./pacer";
 import {
@@ -54,6 +49,7 @@ type SimEvent =
       kind: typeof POST;
       seq: number;
       agent: string;
+      room: string;
       draft: Draft;
     }
   | {
@@ -61,6 +57,7 @@ type SimEvent =
       kind: typeof WAKE;
       seq: number;
       agent: string;
+      room: string;
       version: number;
     };
 
@@ -143,7 +140,25 @@ export type RunSummary = {
   wakes: number;
   silences: number;
   calls: number;
+  stopped: boolean;
   usage: Usage;
+};
+
+// live moderation (G3): commands arrive from the operator in wall time and
+// apply at the current simulated time. They are logged as events, so a run
+// with operator actions is documented rather than reproducible — the
+// byte-identical guarantee (hard rule 5) holds for operator-free runs.
+export type OperatorCommand =
+  | { kind: "inject"; agent: string | "all"; text: string }
+  | { kind: "mute"; agent: string }
+  | { kind: "unmute"; agent: string }
+  | { kind: "join"; agent: string; room: string }
+  | { kind: "leave"; agent: string; room: string }
+  | { kind: "stop" };
+
+export type OperatorPort = {
+  pending(): boolean;
+  drain(): OperatorCommand[];
 };
 
 type CallResult =
@@ -154,16 +169,28 @@ export async function runEngine(
   config: Config,
   provider: Provider,
   hooks: EngineHooks,
-  opts: { pacer?: Pacer } = {},
+  opts: { pacer?: Pacer; operator?: OperatorPort } = {},
 ): Promise<RunSummary> {
   const rng = makeRng(config.seed);
   const agents = new Map<string, AgentState>(
     config.agentNames.map((name) => [name, makeAgentState(config, name)]),
   );
-  const posts: BoardPost[] = [];
+  const rooms = new Map<string, { prompt?: string; members: Set<string> }>();
+  for (const [roomName, room] of Object.entries(config.rooms))
+    rooms.set(roomName, {
+      ...(room.prompt !== undefined ? { prompt: room.prompt } : {}),
+      members: new Set(
+        room.members === "all" ? config.agentNames : room.members,
+      ),
+    });
+  const roomPosts = new Map<string, BoardPost[]>(
+    [...rooms.keys()].map((name) => [name, []]),
+  );
   const heap: SimEvent[] = [];
   let seq = 0;
   let postId = 0;
+  let simNow = 0;
+  let stopped = false;
   const totals: Usage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -175,19 +202,137 @@ export async function runEngine(
     wakes: 0,
     silences: 0,
     calls: 0,
+    stopped: false,
     usage: totals,
   };
 
-  const scheduleWake = (agent: AgentState, time: number): void => {
-    agent.wakeVersion += 1;
-    agent.nextWakeTime = time;
+  const roomInfo = (name: string): RoomInfo => {
+    const room = rooms.get(name);
+    return {
+      name,
+      ...(room?.prompt !== undefined ? { prompt: room.prompt } : {}),
+    };
+  };
+  const roomState = (agent: AgentState, room: string): RoomAgentState => {
+    let state = agent.rooms.get(room);
+    if (!state) {
+      state = makeRoomState();
+      agent.rooms.set(room, state);
+    }
+    return state;
+  };
+
+  const scheduleWake = (
+    agent: AgentState,
+    room: string,
+    time: number,
+  ): void => {
+    const state = roomState(agent, room);
+    state.wakeVersion += 1;
+    state.nextWakeTime = time;
     heapPush(heap, {
       time,
       kind: WAKE,
       seq: seq++,
       agent: agent.name,
-      version: agent.wakeVersion,
+      room,
+      version: state.wakeVersion,
     });
+  };
+
+  const injectInto = (
+    agentName: string,
+    t: number,
+    text: string,
+    operator: boolean,
+  ): void => {
+    const agent = agents.get(agentName) as AgentState;
+    agent.injections.push({ t, text });
+    hooks.emit({
+      t,
+      kind: "inject",
+      agent: agentName,
+      text,
+      ...(operator ? { operator: true } : {}),
+    });
+  };
+
+  const applyOperator = (command: OperatorCommand): void => {
+    switch (command.kind) {
+      case "inject": {
+        const targets =
+          command.agent === "all" ? config.agentNames : [command.agent];
+        for (const target of targets)
+          if (agents.has(target))
+            injectInto(target, simNow, command.text, true);
+        return;
+      }
+      case "mute": {
+        const agent = agents.get(command.agent);
+        if (!agent || agent.muted) return;
+        agent.muted = true;
+        agent.composing = false; // any in-flight draft cancels at landing
+        for (const state of agent.rooms.values()) state.wakeVersion += 1;
+        hooks.emit({ t: simNow, kind: "operator_mute", agent: agent.name });
+        return;
+      }
+      case "unmute": {
+        const agent = agents.get(command.agent);
+        if (!agent || !agent.muted) return;
+        agent.muted = false;
+        hooks.emit({ t: simNow, kind: "operator_unmute", agent: agent.name });
+        for (const [name, room] of rooms)
+          if (room.members.has(agent.name)) {
+            const state = roomState(agent, name);
+            scheduleWake(
+              agent,
+              name,
+              simNow + sampleWait(config, agent.name, state.preference, rng),
+            );
+          }
+        return;
+      }
+      case "join": {
+        const agent = agents.get(command.agent);
+        const room = rooms.get(command.room);
+        if (!agent || !room || room.members.has(agent.name)) return;
+        room.members.add(agent.name);
+        agent.rooms.set(command.room, makeRoomState()); // fresh eyes on the room
+        hooks.emit({
+          t: simNow,
+          kind: "room_join",
+          agent: agent.name,
+          room: command.room,
+        });
+        if (!agent.muted) {
+          const state = roomState(agent, command.room);
+          scheduleWake(
+            agent,
+            command.room,
+            simNow + sampleWait(config, agent.name, state.preference, rng),
+          );
+        }
+        return;
+      }
+      case "leave": {
+        const agent = agents.get(command.agent);
+        const room = rooms.get(command.room);
+        if (!agent || !room || !room.members.has(agent.name)) return;
+        room.members.delete(agent.name);
+        const state = agent.rooms.get(command.room);
+        if (state) state.wakeVersion += 1; // invalidate queued wakes
+        hooks.emit({
+          t: simNow,
+          kind: "room_leave",
+          agent: agent.name,
+          room: command.room,
+        });
+        return;
+      }
+      case "stop":
+        stopped = true;
+        return;
+    }
   };
 
   hooks.emit({
@@ -196,22 +341,37 @@ export async function runEngine(
     name: config.name,
     seed: config.seed,
     duration: config.duration,
+    rooms: Object.fromEntries(
+      [...rooms].map(([name, room]) => [name, [...room.members]]),
+    ),
   });
-  for (const inj of config.injections)
-    heapPush(heap, {
-      time: inj.at,
-      kind: INJECT,
-      seq: seq++,
-      agent: inj.agent,
-      text: inj.text,
-    });
-  for (const name of config.agentNames) {
-    const agent = agents.get(name) as AgentState;
-    scheduleWake(agent, sampleFirstWake(config, name, rng));
+  // G1: broadcast injections expand to per-agent events in name order
+  for (const inj of config.injections) {
+    const targets =
+      inj.agent === "all"
+        ? config.agentNames
+        : Array.isArray(inj.agent)
+          ? inj.agent
+          : [inj.agent];
+    for (const target of targets)
+      heapPush(heap, {
+        time: inj.at,
+        kind: INJECT,
+        seq: seq++,
+        agent: target,
+        text: inj.text,
+      });
   }
+  for (const [name, room] of rooms)
+    for (const member of config.agentNames) {
+      if (!room.members.has(member)) continue;
+      const agent = agents.get(member) as AgentState;
+      scheduleWake(agent, name, sampleFirstWake(config, member, rng));
+    }
 
   const callProvider = async (
     agent: AgentState,
+    room: string,
     t: number,
     blocks: string[],
     kind: "wake" | "gate" | "revise",
@@ -235,6 +395,7 @@ export async function runEngine(
       hooks.call({
         t,
         agent: agent.name,
+        room,
         kind,
         request: { system: config.common_prompt, blocks },
         response: { text: result.text, usage: result.usage, raw: result.raw },
@@ -252,6 +413,7 @@ export async function runEngine(
       hooks.call({
         t,
         agent: agent.name,
+        room,
         kind,
         request: { system: config.common_prompt, blocks },
         response: { error: message },
@@ -261,28 +423,32 @@ export async function runEngine(
     }
   };
 
-  // move an idle mentioned agent's next wake earlier (SPEC §3 notify rule)
+  // move an idle mentioned room-member's next wake in that room earlier
   const notifyMentions = (
+    room: string,
     poster: AgentState,
     message: string,
     tLand: number,
   ): void => {
     if (!config.notify.on_mention || config.agents.identity !== "persistent")
       return;
+    const members = (rooms.get(room) as { members: Set<string> }).members;
     for (const name of config.agentNames) {
-      if (name === poster.name) continue;
+      if (name === poster.name || !members.has(name)) continue;
       const other = agents.get(name) as AgentState;
-      if (other.composing || !mentions(message, name)) continue;
+      if (other.composing || other.muted || !mentions(message, name)) continue;
+      const state = roomState(other, room);
       const target =
         config.activity.mode === "ticks"
           ? nextTickBoundary(config, tLand)
           : tLand + config.notify.delay * (1 + (rng.next() * 2 - 1) * 0.2);
-      if (target < other.nextWakeTime) {
-        scheduleWake(other, target);
+      if (target < state.nextWakeTime) {
+        scheduleWake(other, room, target);
         hooks.emit({
           t: tLand,
           kind: "notify",
           agent: name,
+          room,
           by: poster.name,
           next_wake: target,
         });
@@ -290,28 +456,47 @@ export async function runEngine(
     }
   };
 
-  while (heap.length > 0) {
+  const operatorPending = () => opts.operator?.pending() ?? false;
+
+  while (heap.length > 0 && !stopped) {
+    if (opts.operator)
+      for (const command of opts.operator.drain()) applyOperator(command);
+    if (stopped) break;
+    if (heap.length === 0) break;
     const head = heap[0] as SimEvent;
     if (head.time > config.duration) break;
-    if (opts.pacer) await opts.pacer.waitUntil(head.time);
+    if (opts.pacer) await opts.pacer.waitUntil(head.time, operatorPending);
+    if (operatorPending()) continue; // drain at the top without processing
 
     if (head.kind === INJECT) {
       const event = heapPop(heap) as SimEvent & { kind: typeof INJECT };
-      const agent = agents.get(event.agent) as AgentState;
-      agent.injections.push({ t: event.time, text: event.text });
-      hooks.emit({
-        t: event.time,
-        kind: "inject",
-        agent: event.agent,
-        text: event.text,
-      });
+      simNow = event.time;
+      injectInto(event.agent, event.time, event.text, false);
       continue;
     }
 
     if (head.kind === POST) {
       const event = heapPop(heap) as SimEvent & { kind: typeof POST };
+      simNow = event.time;
       const agent = agents.get(event.agent) as AgentState;
+      const room = event.room;
+      const members = rooms.get(room)?.members;
+      const posts = roomPosts.get(room) as BoardPost[];
       const draft = event.draft;
+      agent.composing = false;
+
+      // a draft from a muted or departed agent dissolves instead of landing
+      if (agent.muted || !members?.has(agent.name)) {
+        hooks.emit({
+          t: event.time,
+          kind: "cancel",
+          agent: agent.name,
+          room,
+          reason: agent.muted ? "muted" : "left_room",
+        });
+        continue;
+      }
+
       const stalePosts = posts.filter((p) => p.t_land > draft.t_wake);
       let message = draft.message;
       let words = draft.words;
@@ -330,17 +515,24 @@ export async function runEngine(
           new_posts: newPostsText,
           max_words: config.output.max_words,
         });
-        const blocks = [
-          ...renderBoardBlocks(config, posts, agent.name),
-          renderPrivateBlock(config, agent, posts),
+        const blocks = buildWakeBlocks(
+          config,
+          agent,
+          roomInfo(room),
+          roomState(agent, room),
+          posts,
           instruction,
-        ];
+        );
+        const cacheable =
+          (rooms.get(room)?.prompt !== undefined ? 1 : 0) +
+          stableBoardBlockCount(config, posts);
         const result = await callProvider(
           agent,
+          room,
           event.time,
           blocks,
           "revise",
-          stableBoardBlockCount(config, posts),
+          cacheable,
         );
         if (result.ok) {
           const action = parseRevise(result.text);
@@ -358,21 +550,23 @@ export async function runEngine(
             t: event.time,
             kind: "provider_error",
             agent: agent.name,
+            room,
             error: result.error,
           });
         }
       }
 
-      agent.composing = false;
+      const state = roomState(agent, room);
       const next =
-        event.time + sampleWait(config, agent.name, agent.preference, rng);
-      scheduleWake(agent, next);
+        event.time + sampleWait(config, agent.name, state.preference, rng);
+      scheduleWake(agent, room, next);
 
       if (cancelled) {
         hooks.emit({
           t: event.time,
           kind: "cancel",
           agent: agent.name,
+          room,
           raw: reviseRaw,
           next_wake: next,
         });
@@ -383,18 +577,24 @@ export async function runEngine(
           t: event.time,
           kind: "revise",
           agent: agent.name,
+          room,
           raw: reviseRaw,
         });
 
       postId += 1;
+      const roomSeq = posts.length + 1;
       posts.push({
         id: postId,
+        seq: roomSeq,
+        room,
         t_land: event.time,
         agent: agent.name,
         message,
       });
       const record: PostRecord = {
         id: postId,
+        seq: roomSeq,
+        room,
         t_land: event.time,
         t_wake: draft.t_wake,
         agent: agent.name,
@@ -416,12 +616,14 @@ export async function runEngine(
         t: event.time,
         kind: "post",
         agent: agent.name,
+        room,
         id: postId,
+        seq: roomSeq,
         stale_count: stalePosts.length,
         next_wake: next,
       });
       summary.posts += 1;
-      notifyMentions(agent, message, event.time);
+      notifyMentions(room, agent, message, event.time);
       continue;
     }
 
@@ -430,7 +632,7 @@ export async function runEngine(
     // land before that window closes. A POST or INJECT at the heap head ends
     // the batch (its kind sorts first at equal times).
     const windowEnd = head.time + minComposeDelay(config);
-    const batch: { time: number; agent: AgentState }[] = [];
+    const batch: { time: number; agent: AgentState; room: string }[] = [];
     while (heap.length > 0) {
       const next = heap[0] as SimEvent;
       if (
@@ -440,33 +642,55 @@ export async function runEngine(
       )
         break;
       const event = heapPop(heap) as SimEvent & { kind: typeof WAKE };
+      simNow = event.time;
       const agent = agents.get(event.agent) as AgentState;
-      // a stale wake was superseded by a reschedule; composing agents don't wake
-      if (event.version !== agent.wakeVersion || agent.composing) continue;
-      batch.push({ time: event.time, agent });
+      const state = roomState(agent, event.room);
+      // a stale wake was superseded by a reschedule; composing or muted
+      // agents don't wake
+      if (event.version !== state.wakeVersion || agent.composing || agent.muted)
+        continue;
+      batch.push({ time: event.time, agent, room: event.room });
     }
     if (batch.length === 0) continue;
 
-    // freeze every view before any state changes; each agent sees the board
-    // exactly as it stood at its wake time
+    // freeze every view before any state changes; each agent sees its room's
+    // board exactly as it stood at its wake time
     const gateMode = config.wake.mode === "gate";
-    const cacheable = stableBoardBlockCount(config, posts);
-    const views = batch.map(({ time, agent }) => ({
-      time,
-      agent,
-      turnBlocks: buildWakeBlocks(
-        config,
+    const views = batch.map(({ time, agent, room }) => {
+      const posts = roomPosts.get(room) as BoardPost[];
+      const state = roomState(agent, room);
+      const cacheable =
+        (rooms.get(room)?.prompt !== undefined ? 1 : 0) +
+        stableBoardBlockCount(config, posts);
+      return {
+        time,
         agent,
-        posts,
-        config.render.turn_instruction,
-      ),
-      gateBlocks: gateMode
-        ? buildWakeBlocks(config, agent, posts, config.render.gate_instruction)
-        : undefined,
-    }));
-    for (const { agent } of batch) {
-      agent.hasWoken = true;
-      agent.lastSeenId = postId;
+        room,
+        state,
+        cacheable,
+        turnBlocks: buildWakeBlocks(
+          config,
+          agent,
+          roomInfo(room),
+          state,
+          posts,
+          config.render.turn_instruction,
+        ),
+        gateBlocks: gateMode
+          ? buildWakeBlocks(
+              config,
+              agent,
+              roomInfo(room),
+              state,
+              posts,
+              config.render.gate_instruction,
+            )
+          : undefined,
+      };
+    });
+    for (const view of views) {
+      view.state.hasWoken = true;
+      view.state.lastSeenSeq = (roomPosts.get(view.room) as BoardPost[]).length;
     }
 
     const results = await mapWithConcurrency(
@@ -476,28 +700,31 @@ export async function runEngine(
         if (view.gateBlocks) {
           const gate = await callProvider(
             view.agent,
+            view.room,
             view.time,
             view.gateBlocks,
             "gate",
-            cacheable,
+            view.cacheable,
           );
           if (!gate.ok || !parseGate(gate.text))
             return { gate, turn: undefined };
           const turn = await callProvider(
             view.agent,
+            view.room,
             view.time,
             view.turnBlocks,
             "wake",
-            cacheable,
+            view.cacheable,
           );
           return { gate, turn };
         }
         const turn = await callProvider(
           view.agent,
+          view.room,
           view.time,
           view.turnBlocks,
           "wake",
-          cacheable,
+          view.cacheable,
         );
         return { gate: undefined, turn };
       },
@@ -505,7 +732,12 @@ export async function runEngine(
 
     // resolve results in wake-time order so every RNG draw happens at a
     // deterministic point regardless of call completion order
-    const ticksDrafts: { agent: AgentState; draft: Draft; land: number }[] = [];
+    const ticksDrafts: {
+      agent: AgentState;
+      room: string;
+      draft: Draft;
+      land: number;
+    }[] = [];
     for (let i = 0; i < views.length; i++) {
       const view = views[i] as (typeof views)[number];
       const { gate, turn } = results[i] as {
@@ -513,6 +745,8 @@ export async function runEngine(
         turn?: CallResult;
       };
       const agent = view.agent;
+      const room = view.room;
+      const state = view.state;
       const t = view.time;
       summary.wakes += 1;
       const okUsage = [gate, turn].filter(
@@ -522,6 +756,7 @@ export async function runEngine(
         t,
         kind: "wake",
         agent: agent.name,
+        room,
         ...(okUsage.length > 0
           ? {
               tokens_in: okUsage.reduce((n, r) => n + r.usage.inputTokens, 0),
@@ -533,21 +768,26 @@ export async function runEngine(
             }
           : {}),
       });
+      const reschedule = (): number => {
+        const next = t + sampleWait(config, agent.name, state.preference, rng);
+        scheduleWake(agent, room, next);
+        return next;
+      };
       if (gate !== undefined) {
         if (!gate.ok) {
           hooks.emit({
             t,
             kind: "provider_error",
             agent: agent.name,
+            room,
             error: gate.error,
           });
-          const next =
-            t + sampleWait(config, agent.name, agent.preference, rng);
-          scheduleWake(agent, next);
+          const next = reschedule();
           hooks.emit({
             t,
             kind: "skipped",
             agent: agent.name,
+            room,
             next_wake: next,
           });
           continue;
@@ -556,19 +796,19 @@ export async function runEngine(
           t,
           kind: "gate",
           agent: agent.name,
+          room,
           raw: gate.text,
           act: turn !== undefined,
         });
         if (turn === undefined) {
           // anything but ACT is silence, gate reply logged raw (SPEC §4)
           summary.silences += 1;
-          const next =
-            t + sampleWait(config, agent.name, agent.preference, rng);
-          scheduleWake(agent, next);
+          const next = reschedule();
           hooks.emit({
             t,
             kind: "silence",
             agent: agent.name,
+            room,
             raw: gate.text,
             next_wake: next,
           });
@@ -581,23 +821,29 @@ export async function runEngine(
           t,
           kind: "provider_error",
           agent: agent.name,
+          room,
           error: turn.error,
         });
-        const next = t + sampleWait(config, agent.name, agent.preference, rng);
-        scheduleWake(agent, next);
-        hooks.emit({ t, kind: "skipped", agent: agent.name, next_wake: next });
+        const next = reschedule();
+        hooks.emit({
+          t,
+          kind: "skipped",
+          agent: agent.name,
+          room,
+          next_wake: next,
+        });
         continue;
       }
       const reply = parseWake(turn.text, config.activity.check_back);
-      agent.preference = reply.preference;
+      state.preference = reply.preference;
       if (reply.silent) {
         summary.silences += 1;
-        const next = t + sampleWait(config, agent.name, agent.preference, rng);
-        scheduleWake(agent, next);
+        const next = reschedule();
         hooks.emit({
           t,
           kind: "silence",
           agent: agent.name,
+          room,
           raw: turn.text,
           next_wake: next,
         });
@@ -614,9 +860,20 @@ export async function runEngine(
         latency_ms: turn.latency_ms,
       };
       agent.composing = true;
-      hooks.emit({ t, kind: "compose_start", agent: agent.name, words });
+      hooks.emit({
+        t,
+        kind: "compose_start",
+        agent: agent.name,
+        room,
+        words,
+      });
       if (config.activity.mode === "ticks") {
-        ticksDrafts.push({ agent, draft, land: nextTickBoundary(config, t) });
+        ticksDrafts.push({
+          agent,
+          room,
+          draft,
+          land: nextTickBoundary(config, t),
+        });
       } else {
         const land = t + composeDelay(config, agent.name, words, rng);
         heapPush(heap, {
@@ -624,34 +881,40 @@ export async function runEngine(
           kind: POST,
           seq: seq++,
           agent: agent.name,
+          room,
           draft,
         });
       }
     }
     // posts composed in the same tick land at the boundary in seeded random
     // order (SPEC §3); seq assignment in shuffled order is that order
-    for (const { agent, draft, land } of rng.shuffle(ticksDrafts))
+    for (const { agent, room, draft, land } of rng.shuffle(ticksDrafts))
       heapPush(heap, {
         time: land,
         kind: POST,
         seq: seq++,
         agent: agent.name,
+        room,
         draft,
       });
   }
 
-  // drafts still in flight at duration are logged as unfinished
+  summary.stopped = stopped;
+  const endTime = stopped ? simNow : config.duration;
+
+  // drafts still in flight at the end are logged as unfinished
   for (const event of heap)
     if (event.kind === POST)
       hooks.emit({
         t: event.draft.t_wake,
         kind: "unfinished",
         agent: event.agent,
+        room: event.room,
         words: event.draft.words,
       });
 
   hooks.emit({
-    t: config.duration,
+    t: endTime,
     kind: "cost",
     calls: summary.calls,
     tokens_in: totals.inputTokens,
@@ -660,10 +923,11 @@ export async function runEngine(
     cache_write_tokens: totals.cacheWriteTokens,
   });
   hooks.emit({
-    t: config.duration,
+    t: endTime,
     kind: "run_end",
     posts: summary.posts,
     wakes: summary.wakes,
+    ...(stopped ? { stopped: true } : {}),
   });
   return summary;
 }

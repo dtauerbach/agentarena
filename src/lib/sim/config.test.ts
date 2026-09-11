@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -73,12 +73,17 @@ describe("config loading", () => {
     expect(() => loadConfig(bad)).toThrow(/unknown agent "Zed"/);
   });
 
-  it("validates every experiment file in the catalog", () => {
-    const files = readdirSync("experiments/nogame").filter((f) =>
-      f.endsWith(".yaml"),
-    );
-    expect(files.length).toBeGreaterThan(0);
-    for (const file of files)
-      expect(() => loadConfig(join("experiments/nogame", file))).not.toThrow();
+  it("validates every experiment file in every experiment folder", () => {
+    let checked = 0;
+    for (const entry of readdirSync("experiments")) {
+      const dir = join("experiments", entry);
+      if (!statSync(dir).isDirectory()) continue;
+      for (const file of readdirSync(dir)) {
+        if (!file.endsWith(".yaml") || file.startsWith(".")) continue;
+        expect(() => loadConfig(join(dir, file))).not.toThrow();
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(17);
   });
 });
