@@ -39,6 +39,16 @@
   **Designer** (universal prompt / private notes / reveals / 3 knobs) that
   patches the YAML minimally, comments preserved; raw YAML behind an
   advanced fold. Mafia folded into "Other experiments"; nogame is the face.
+- Model choice (2026-09-11): the launch form has a model picker for live
+  providers (claude_code and anthropic), fed from experiments/pricing.yaml —
+  add a model there and it appears in the UI. Verified claude-sonnet-4-6 via
+  claude_code end-to-end. Haiku stays the config default.
+- Landing page is now a website: hero + variation cards (humanized titles) +
+  recent-society cards; the engineer's view (all runs, batches, raw paths)
+  moved to /lab. Nav: variations · societies · lab.
+- Parse refinement: a reply whose first OR last line is PASS is silence
+  (models often deliberate around their PASS); the deliberation stays in the
+  raw log, visible only in debug.
 - Next: iterate nogame conditions with the designer; W5 extras if wanted.
 
 ## Decisions

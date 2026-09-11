@@ -31,6 +31,8 @@ export function LaunchForm({
 }: Props) {
   const router = useRouter();
   const [provider, setProvider] = useState<ProviderChoice>("mock");
+  const [modelChoice, setModelChoice] = useState("");
+  const [models, setModels] = useState<string[]>([]);
   const [duration, setDuration] = useState(String(defaultDuration));
   const [seed, setSeed] = useState(String(defaultSeed));
   const [speed, setSpeed] = useState("10");
@@ -50,6 +52,7 @@ export function LaunchForm({
         experiment,
         file,
         provider,
+        model: modelChoice === "" ? undefined : modelChoice,
         duration: Number(duration) || undefined,
         seed: Number(seed) || undefined,
       }),
@@ -58,12 +61,14 @@ export function LaunchForm({
     const body = (await response.json()) as {
       estimate: Estimate;
       model: string;
+      models?: string[];
       hasKey: boolean;
     };
     setEstimate(body.estimate);
     setModel(body.model);
+    setModels(body.models ?? []);
     setHasKey(body.hasKey);
-  }, [experiment, file, provider, duration, seed]);
+  }, [experiment, file, provider, modelChoice, duration, seed]);
 
   useEffect(() => {
     if (provider !== "mock") void fetchEstimate();
@@ -80,6 +85,7 @@ export function LaunchForm({
           experiment,
           file,
           provider,
+          model: modelChoice === "" ? undefined : modelChoice,
           duration: Number(duration),
           seed: Number(seed),
           speed: speed === "max" ? "max" : Number(speed),
@@ -131,6 +137,29 @@ export function LaunchForm({
             <option value="anthropic">anthropic (API credits)</option>
           </select>
         </label>
+        {live && (
+          <label
+            htmlFor="launch-model"
+            className="flex flex-col gap-1 text-xs text-muted-foreground"
+          >
+            model
+            <select
+              id="launch-model"
+              className="h-9 rounded-md border bg-transparent px-2 text-sm"
+              value={modelChoice}
+              onChange={(e) => setModelChoice(e.target.value)}
+            >
+              <option value="">default ({model || "from config"})</option>
+              {models
+                .filter((name) => name !== model || modelChoice !== "")
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <label
           htmlFor="launch-duration"
           className="flex flex-col gap-1 text-xs text-muted-foreground"

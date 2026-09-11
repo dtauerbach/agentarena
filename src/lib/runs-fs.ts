@@ -1,5 +1,5 @@
 import "server-only";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 export const RUNS_DIR = "runs";
@@ -51,4 +51,23 @@ export function batchDirFromId(batchId: string): string {
   if (!existsSync(join(dir, "batch.json")))
     throw new Error(`no such batch: ${batchId}`);
   return dir;
+}
+
+export function runPostCount(runId: string): number {
+  try {
+    const path = join(runDirFromId(runId), "board.jsonl");
+    if (!existsSync(path)) return 0;
+    return readFileSync(path, "utf8")
+      .split("\n")
+      .filter((line) => line !== "").length;
+  } catch {
+    return 0;
+  }
+}
+
+// run dirs are named YYYYMMDD-HHMMSS-<name>-s<seed>
+export function runDate(runId: string): string {
+  const match = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})/.exec(runId);
+  if (!match) return "";
+  return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}`;
 }

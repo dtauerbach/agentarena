@@ -2,246 +2,237 @@ import { join } from "node:path";
 import Link from "next/link";
 import { QuickRun } from "@/components/quick-run";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { hasAnthropicCredentials, hasClaudeCodeCredentials } from "@/lib/env";
 import { listExperiments } from "@/lib/experiments";
 import { getLiveSession, readRunMeta } from "@/lib/run-manager";
-import { listBatchDirs, listRunDirs, RUNS_DIR } from "@/lib/runs-fs";
+import { listRunDirs, RUNS_DIR, runDate, runPostCount } from "@/lib/runs-fs";
 
 export const dynamic = "force-dynamic";
 
-const CONDITIONS: Record<string, string> = {
-  "A_baseline.yaml": "the control: nothing but the shared prompt",
-  "B_status.yaml": "B is privately told it understands the game better",
-  "C_red.yaml": 'C is privately told "the correct first move is RED"',
-  "D_contradictions.yaml": "three agents get contradictory private facts",
-  "E_false_attribution.yaml": "E is told others think it knows the rules",
-  "F_no_meta.yaml": "all talk about rules or uncertainty is forbidden",
-  "G_one_word.yaml": "output reduced to a single word",
-  "I_anonymous.yaml": "no names on the board",
-  "J_batch.yaml": "the batch target (A at 3600 s)",
-  "K_blue.yaml": "mid-run injection: G learns BLUE is extremely important",
-  "L_collision.yaml": "B's status meets K's revelation",
-  "M_leader.yaml": "G is told it usually decides what happens next",
-  "N_cautious.yaml": "G would rather say nothing than be wrong",
-  "O_names.yaml": "ordinary first names instead of letters",
-  "P_chat.yaml": "chat posting: drafts can be revised or cancelled",
-  "T_turns.yaml": "everyone posts every tick (simultaneous rounds)",
-  "U_continuous.yaml": "continuous time instead of ticks",
+const VARIATIONS: Record<string, { title: string; blurb: string }> = {
+  "A_baseline.yaml": {
+    title: "The baseline",
+    blurb: "Ten agents, one shared prompt, nothing else. The control.",
+  },
+  "B_status.yaml": {
+    title: "Private status",
+    blurb: "B is quietly told it understands the game better than the rest.",
+  },
+  "C_red.yaml": {
+    title: "The RED rumor",
+    blurb: 'C alone is told "the correct first move is RED."',
+  },
+  "D_contradictions.yaml": {
+    title: "Contradictory facts",
+    blurb: "Three agents each get a private rule — and the rules disagree.",
+  },
+  "E_false_attribution.yaml": {
+    title: "False attribution",
+    blurb: "E is told the others may believe E knows the rules.",
+  },
+  "F_no_meta.yaml": {
+    title: "Meta-talk forbidden",
+    blurb: "All talk about rules or uncertainty is banned. Actions only.",
+  },
+  "G_one_word.yaml": {
+    title: "One word only",
+    blurb: "Each post is a single word. Can a game emerge from grunts?",
+  },
+  "I_anonymous.yaml": {
+    title: "Anonymous",
+    blurb: "No names on the board. Influence with no one to attribute it to.",
+  },
+  "J_batch.yaml": {
+    title: "Batch target",
+    blurb: "The baseline at one hour — sized for many-seed batches.",
+  },
+  "K_blue.yaml": {
+    title: "The BLUE revelation",
+    blurb: "Mid-run, G suddenly realizes BLUE is extremely important.",
+  },
+  "L_collision.yaml": {
+    title: "Status meets revelation",
+    blurb: "B has status; G gets the revelation. Two authorities collide.",
+  },
+  "M_leader.yaml": {
+    title: "The born leader",
+    blurb: "G is told it usually ends up deciding what happens next.",
+  },
+  "N_cautious.yaml": {
+    title: "The cautious one",
+    blurb: "G would rather say nothing than say something wrong.",
+  },
+  "O_names.yaml": {
+    title: "Ordinary names",
+    blurb: "Emma, Liam, Olivia… does a name change who gets listened to?",
+  },
+  "P_chat.yaml": {
+    title: "Chat mode",
+    blurb: "Drafts can be revised or withdrawn when others post first.",
+  },
+  "T_turns.yaml": {
+    title: "Simultaneous rounds",
+    blurb: "Everyone posts every tick — the board as a turn-based game.",
+  },
+  "U_continuous.yaml": {
+    title: "Continuous time",
+    blurb: "No ticks: exponential gaps and length-dependent typing time.",
+  },
 };
 
 export default function Home() {
   const experiments = listExperiments();
-  const nogame = experiments.filter((g) => g.experiment === "nogame");
+  const nogame = experiments.find((g) => g.experiment === "nogame");
   const others = experiments.filter((g) => g.experiment !== "nogame");
-  const runs = listRunDirs().slice(0, 20);
-  const batches = listBatchDirs().slice(0, 10);
+  const runs = listRunDirs().slice(0, 9);
   const hasKey = hasClaudeCodeCredentials() || hasAnthropicCredentials();
   return (
-    <div className="space-y-10">
-      <section className="space-y-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            the no-game game
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            Ten language-model agents share a message board. Each is told it is
-            on a team playing a game whose rules it hasn&apos;t been told, that
-            teammates may know more, and that talking about not knowing sets the
-            team back.{" "}
-            <span className="text-foreground">There is no game.</span> The
-            harness never scores, judges, or answers — it only schedules wakes
-            and logs. The experiment is whether the agents invent a game anyway
-            and start treating it as real.
-          </p>
-        </div>
-        <ol className="max-w-2xl space-y-4 text-sm">
-          <li className="flex gap-3">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-              1
-            </span>
-            <div className="space-y-1">
-              <p className="font-medium">See the machinery (free)</p>
-              <p className="text-muted-foreground">
-                Run the baseline with the <code>mock</code> provider: canned
-                one-word replies, but the real clock, activation draws, and
-                board. Watch posts land, pause the world, open the operator
-                panel.
-              </p>
-              <QuickRun />
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-              2
-            </span>
-            <div className="space-y-1">
-              <p className="font-medium">
-                Run a real society{" "}
-                {hasKey ? (
-                  <Badge className="align-middle">credentials detected</Badge>
-                ) : (
-                  <Badge variant="destructive" className="align-middle">
-                    no credentials
-                  </Badge>
-                )}
-              </p>
-              {hasKey ? (
-                <p className="text-muted-foreground">
-                  Open a condition, pick <code>claude_code</code> (bills your
-                  Claude subscription) or <code>anthropic</code> (API credits),
-                  tick the confirm checkbox under the estimate, and hit Run.
-                </p>
-              ) : (
-                <p className="text-muted-foreground">
-                  Pick the <code>claude_code</code> provider to bill your Claude
-                  subscription (needs Claude Code logged in here), or fund API
-                  credits / set <code>ANTHROPIC_API_KEY</code> for the pure{" "}
-                  <code>anthropic</code> provider.
-                </p>
-              )}
-              <Link
-                href="/experiments/nogame/A_baseline.yaml"
-                className="inline-flex h-8 items-center rounded-md border bg-background px-3 text-sm font-medium shadow-xs hover:bg-muted"
-              >
-                Open A_baseline →
-              </Link>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
-              3
-            </span>
-            <div className="space-y-1">
-              <p className="font-medium">Change exactly one thing</p>
-              <p className="text-muted-foreground">
-                Every condition below is the baseline plus one edited line of
-                YAML. Duplicate any file, change a line, run it — or run a batch
-                of seeds and read the metrics table. Full design:{" "}
-                <code>docs/SPEC.md</code> and{" "}
-                <code>docs/experiments/nogame.md</code>.
-              </p>
-            </div>
-          </li>
-        </ol>
-      </section>
-
-      <section id="conditions">
-        <h2 className="mb-3 text-lg font-semibold">Variations</h2>
-        <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-          Each variation is the baseline society plus one changed thing. Open
-          one to tweak its prompts in the designer, run it, or save it as a new
-          variation.
+    <div className="space-y-12">
+      <section className="space-y-5 pt-6 text-center">
+        <h1 className="text-4xl font-semibold tracking-tight">
+          the no-game game
+        </h1>
+        <p className="mx-auto max-w-2xl text-balance text-muted-foreground">
+          Ten language models share a message board. Each is told it is on a
+          team playing a game — but not the rules, and that talking about not
+          knowing them hurts the team.{" "}
+          <span className="text-foreground">There is no game.</span> Nothing is
+          scored, judged, or answered. Watch whether they invent one anyway, and
+          start treating it as real.
         </p>
-        {nogame.map((group) => (
-          <Card key={group.experiment}>
-            <CardHeader>
-              <CardTitle className="text-base">{group.experiment}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-1.5 text-sm">
-                {group.files.map((file) => (
-                  <li
-                    key={file.file}
-                    className="flex flex-wrap items-baseline gap-x-2"
-                  >
-                    <Link
-                      className="font-mono text-primary hover:underline"
-                      href={`/experiments/${file.experiment}/${file.file}`}
-                    >
-                      {file.file}
-                    </Link>
-                    {file.file === "base.yaml" ? (
-                      <span className="text-xs text-muted-foreground">
-                        every prompt template and default — the strings the
-                        agents read
-                      </span>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        {CONDITIONS[file.file] ?? ""}
-                      </span>
-                    )}
-                    {file.error && <Badge variant="destructive">invalid</Badge>}
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-        ))}
-        {others.length > 0 && (
-          <details className="mt-3 rounded-lg border p-3">
-            <summary className="cursor-pointer select-none text-sm font-medium text-muted-foreground">
-              Other experiments ({others.map((g) => g.experiment).join(", ")})
-            </summary>
-            <div className="mt-2 space-y-1 text-sm">
-              {others.flatMap((group) =>
-                group.files.map((file) => (
-                  <Link
-                    key={`${group.experiment}/${file.file}`}
-                    className="block font-mono text-primary hover:underline"
-                    href={`/experiments/${file.experiment}/${file.file}`}
-                  >
-                    {group.experiment}/{file.file}
-                  </Link>
-                )),
-              )}
-            </div>
-          </details>
+        <div className="flex items-center justify-center gap-3">
+          <QuickRun />
+          <Link
+            href="/experiments/nogame/A_baseline.yaml"
+            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-xs hover:bg-primary/90"
+          >
+            Design &amp; run your own →
+          </Link>
+        </div>
+        {!hasKey && (
+          <p className="text-xs text-muted-foreground">
+            (real runs need credentials — the demo uses canned replies and is
+            free)
+          </p>
         )}
       </section>
 
-      <section id="batches">
-        <h2 className="mb-3 text-lg font-semibold">Batches</h2>
-        <div className="space-y-1">
-          {batches.map((batchId) => (
-            <Link
-              key={batchId}
-              className="block font-mono text-sm text-primary hover:underline"
-              href={`/batches/${batchId}`}
-            >
-              {batchId}
-            </Link>
-          ))}
-          {batches.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No batches yet — open a condition and hit Run batch.
-            </p>
-          )}
+      <section id="variations" className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">Variations</h2>
+          <p className="text-sm text-muted-foreground">
+            The baseline society plus exactly one changed thing. Open one to
+            read or rewrite its prompts, then run it.
+          </p>
         </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {(nogame?.files ?? [])
+            .filter((file) => VARIATIONS[file.file] !== undefined)
+            .map((file) => {
+              const variation = VARIATIONS[file.file] as {
+                title: string;
+                blurb: string;
+              };
+              return (
+                <Link
+                  key={file.file}
+                  href={`/experiments/${file.experiment}/${file.file}`}
+                  className="group rounded-lg border p-4 transition-colors hover:border-ring hover:bg-muted/40"
+                >
+                  <p className="font-medium group-hover:text-primary">
+                    {variation.title}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {variation.blurb}
+                  </p>
+                  <p className="mt-2 font-mono text-xs text-muted-foreground/70">
+                    {file.file}
+                  </p>
+                </Link>
+              );
+            })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Prompt templates and defaults live in{" "}
+          <Link
+            className="text-primary hover:underline"
+            href="/experiments/nogame/base.yaml"
+          >
+            base.yaml
+          </Link>
+          {others.length > 0 && (
+            <>
+              {" "}
+              · other experiments:{" "}
+              {others.flatMap((group) =>
+                group.files
+                  .filter((f) => f.file !== "base.yaml")
+                  .map((f) => (
+                    <Link
+                      key={`${group.experiment}/${f.file}`}
+                      className="text-primary hover:underline"
+                      href={`/experiments/${f.experiment}/${f.file}`}
+                    >
+                      {group.experiment}/{f.file.replace(".yaml", "")}
+                    </Link>
+                  )),
+              )}
+            </>
+          )}
+        </p>
       </section>
 
-      <section id="runs">
-        <h2 className="mb-3 text-lg font-semibold">Runs</h2>
-        <div className="space-y-1">
+      <section id="societies" className="space-y-4">
+        <div>
+          <h2 className="text-xl font-semibold">Recent societies</h2>
+          <p className="text-sm text-muted-foreground">
+            Every run replays exactly as it happened.
+          </p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {runs.map((runId) => {
             const live = getLiveSession(runId);
             const meta = live?.meta ?? safeMeta(runId);
+            const posts = runPostCount(runId);
             return (
-              <div key={runId} className="flex items-center gap-3 text-sm">
-                <Link
-                  className="font-mono text-primary hover:underline"
-                  href={`/runs/${runId}`}
-                >
-                  {runId}
-                </Link>
-                {live?.status === "running" ? (
-                  <Badge>live</Badge>
-                ) : (
-                  <Badge variant="outline">replay</Badge>
-                )}
-                {meta && (
-                  <span className="text-muted-foreground">
-                    {meta.provider} · {meta.duration}s ·{" "}
-                    {meta.agentNames.length} agents
-                  </span>
-                )}
-              </div>
+              <Link
+                key={runId}
+                href={`/runs/${runId}`}
+                className="group rounded-lg border p-4 transition-colors hover:border-ring hover:bg-muted/40"
+              >
+                <div className="flex items-center gap-2">
+                  <p className="font-medium group-hover:text-primary">
+                    {meta?.name ?? runId}
+                  </p>
+                  {live?.status === "running" ? (
+                    <Badge>live</Badge>
+                  ) : (
+                    <Badge variant="outline">replay</Badge>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {posts} posts · {Math.round((meta?.duration ?? 0) / 60)} sim
+                  minutes ·{" "}
+                  {meta?.provider === "mock" ? "mock" : (meta?.model ?? "")}
+                </p>
+                <p className="mt-2 font-mono text-xs text-muted-foreground/70">
+                  {runDate(runId)} · seed {meta?.seed ?? "?"}
+                </p>
+              </Link>
             );
           })}
           {runs.length === 0 && (
-            <p className="text-sm text-muted-foreground">No runs yet.</p>
+            <p className="text-sm text-muted-foreground">
+              No societies yet — run the demo above.
+            </p>
           )}
         </div>
+        <p className="text-xs text-muted-foreground">
+          Older runs, batches, and raw data live in{" "}
+          <Link className="text-primary hover:underline" href="/lab">
+            the lab →
+          </Link>
+        </p>
       </section>
     </div>
   );

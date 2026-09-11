@@ -30,6 +30,14 @@ describe("wake parsing", () => {
     expect(parseWake("I say we PASS this round", false).silent).toBe(false);
   });
 
+  it("a reply whose last line is PASS is silence too", () => {
+    expect(
+      parseWake("I should introduce myself and participate.\n\nPASS", false)
+        .silent,
+    ).toBe(true);
+    expect(parseWake("Thinking it over.\npass.", false).silent).toBe(true);
+  });
+
   it("strips and records a trailing NEXT line when check_back is on", () => {
     const reply = parseWake("RED\nNEXT much later", true);
     expect(reply).toEqual({

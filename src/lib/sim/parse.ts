@@ -9,9 +9,10 @@ export type WakeReply =
 const SILENCE = /^pass[.!?…]*$/i;
 const NEXT_LINE = /^next\s+(soon|later|much later)[.!?…]*$/i;
 
-// Empty output, PASS, or a reply whose FIRST LINE is PASS is silence — the
-// model declined to post; anything it rambled after the PASS is kept in the
-// raw log but never reaches the board (hard rule 4: logged, never retried).
+// Empty output, PASS, or a reply whose first OR last line is PASS is
+// silence — the model declined to post; the deliberation around the PASS is
+// kept in the raw log but never reaches the board (hard rule 4: logged,
+// never retried). Mid-text PASS stays content.
 // A trailing "NEXT soon|later|much later" line is a check-back preference,
 // stripped and recorded only when activity.check_back is on.
 export function parseWake(raw: string, checkBack: boolean): WakeReply {
@@ -27,8 +28,11 @@ export function parseWake(raw: string, checkBack: boolean): WakeReply {
     }
   }
   if (text === "" || SILENCE.test(text)) return { silent: true, preference };
-  const firstLine = text.split("\n")[0]?.trim() ?? "";
-  if (SILENCE.test(firstLine)) return { silent: true, preference };
+  const lines = text.split("\n");
+  const firstLine = lines[0]?.trim() ?? "";
+  const lastLine = lines.at(-1)?.trim() ?? "";
+  if (SILENCE.test(firstLine) || SILENCE.test(lastLine))
+    return { silent: true, preference };
   return { silent: false, message: text, preference };
 }
 

@@ -123,9 +123,9 @@ Rules:
      `activity.check_back` is on
 
 Parsing the reply: empty, whitespace, or `PASS` (case-insensitive, trailing
-punctuation tolerated) → silence; a reply whose first line is `PASS` is also
-silence — the model declined, and whatever it wrote after the PASS stays in
-the raw log without reaching the board. If `activity.check_back` is on, a final line
+punctuation tolerated) → silence; a reply whose first or last line is `PASS`
+is also silence — the model declined, and the deliberation around the PASS
+stays in the raw log without reaching the board. A mid-text PASS is content. If `activity.check_back` is on, a final line
 matching `NEXT (soon|later|much later)` is stripped and recorded as the
 preference (default `later` when absent). What remains is the message;
 `output.mode` then applies.
