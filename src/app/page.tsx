@@ -206,7 +206,7 @@ export default function Home() {
               >
                 <div className="flex items-center gap-2">
                   <p className="font-medium group-hover:text-primary">
-                    {meta?.name ?? runId}
+                    {meta?.label ?? meta?.name ?? runId}
                   </p>
                   {live?.status === "running" ? (
                     <Badge>live</Badge>

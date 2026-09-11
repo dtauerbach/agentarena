@@ -7,9 +7,18 @@ import { Input } from "@/components/ui/input";
 
 type Injection = { at: number; agent: string; text: string };
 
+type ModelOverride = {
+  agent: string;
+  provider: "" | "anthropic" | "claude_code" | "openai";
+  name: string;
+};
+
 export type DesignerInitial = {
   commonPrompt: string;
   wakeMode: "direct" | "gate";
+  modelPerAgent: Record<string, { provider?: string; name: string }>;
+  models: string[];
+  defaultModel: string;
   privatePrompts: Record<string, string>;
   injections: Injection[];
   agentsCount: number;
@@ -36,6 +45,13 @@ export function Designer({ experiment, file, initial }: Props) {
   );
   const [injections, setInjections] = useState<Injection[]>(initial.injections);
   const [wakeMode, setWakeMode] = useState(initial.wakeMode);
+  const [modelOverrides, setModelOverrides] = useState<ModelOverride[]>(
+    Object.entries(initial.modelPerAgent).map(([agent, value]) => ({
+      agent,
+      provider: (value.provider ?? "") as ModelOverride["provider"],
+      name: value.name,
+    })),
+  );
   const [agentsCount, setAgentsCount] = useState(String(initial.agentsCount));
   const [duration, setDuration] = useState(String(initial.duration));
   const [maxWords, setMaxWords] = useState(String(initial.maxWords));
@@ -58,6 +74,18 @@ export function Designer({ experiment, file, initial }: Props) {
     if (JSON.stringify(cleanInjections) !== JSON.stringify(initial.injections))
       patch.injections = cleanInjections;
     if (wakeMode !== initial.wakeMode) patch.wake_mode = wakeMode;
+    const overrides = Object.fromEntries(
+      modelOverrides
+        .filter((o) => o.name.trim() !== "")
+        .map((o) => [
+          o.agent,
+          o.provider === ""
+            ? { name: o.name.trim() }
+            : { provider: o.provider, name: o.name.trim() },
+        ]),
+    );
+    if (JSON.stringify(overrides) !== JSON.stringify(initial.modelPerAgent))
+      patch.model_per_agent = overrides;
     if (Number(agentsCount) !== initial.agentsCount)
       patch.agents_count = Number(agentsCount);
     if (Number(duration) !== initial.duration)
@@ -266,6 +294,112 @@ export function Designer({ experiment, file, initial }: Props) {
         <p className="text-xs text-muted-foreground">
           time is in simulated seconds (1800 = half an hour in)
         </p>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-sm font-semibold">Who runs on what</p>
+        <p className="text-xs text-muted-foreground">
+          Every agent uses the run&apos;s default model (
+          <span className="font-mono">{initial.defaultModel}</span>, chosen at
+          launch) unless overridden here — mix models, or point an agent at an
+          OpenAI-compatible server.
+        </p>
+        {modelOverrides.map((override, index) => (
+          <div key={override.agent} className="flex items-center gap-2">
+            <select
+              aria-label="model override agent"
+              className={selectClass}
+              value={override.agent}
+              onChange={(e) =>
+                setModelOverrides((prev) =>
+                  prev.map((p, i) =>
+                    i === index ? { ...p, agent: e.target.value } : p,
+                  ),
+                )
+              }
+            >
+              <option value={override.agent}>{override.agent}</option>
+              {initial.agentNames
+                .filter((name) => !modelOverrides.some((o) => o.agent === name))
+                .map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+            </select>
+            <select
+              aria-label="model override provider"
+              className={selectClass}
+              value={override.provider}
+              onChange={(e) =>
+                setModelOverrides((prev) =>
+                  prev.map((p, i) =>
+                    i === index
+                      ? {
+                          ...p,
+                          provider: e.target.value as ModelOverride["provider"],
+                        }
+                      : p,
+                  ),
+                )
+              }
+            >
+              <option value="">same provider</option>
+              <option value="claude_code">claude_code</option>
+              <option value="anthropic">anthropic</option>
+              <option value="openai">openai</option>
+            </select>
+            <Input
+              className="w-64"
+              list="designer-models"
+              placeholder="model id"
+              value={override.name}
+              onChange={(e) =>
+                setModelOverrides((prev) =>
+                  prev.map((p, i) =>
+                    i === index ? { ...p, name: e.target.value } : p,
+                  ),
+                )
+              }
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setModelOverrides((prev) => prev.filter((_, i) => i !== index))
+              }
+            >
+              ✕
+            </Button>
+          </div>
+        ))}
+        <datalist id="designer-models">
+          {initial.models.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
+        {initial.agentNames.some(
+          (name) => !modelOverrides.some((o) => o.agent === name),
+        ) && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              setModelOverrides((prev) => [
+                ...prev,
+                {
+                  agent: initial.agentNames.find(
+                    (name) => !prev.some((o) => o.agent === name),
+                  ) as string,
+                  provider: "",
+                  name: "",
+                },
+              ])
+            }
+          >
+            + model override
+          </Button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-end gap-4">

@@ -21,7 +21,7 @@ export type BatchOptions = {
   seedStart: number;
   concurrency: number;
   baseDir?: string;
-  makeProvider: (seed: number) => Provider;
+  makeProvider: (seed: number) => Provider | ((agent: string) => Provider);
   onRunDone?: (seed: number, finished: number, total: number) => void;
 };
 

@@ -430,3 +430,41 @@ describe("G1-G3: broadcast injections, rooms, operator", () => {
     expect(end?.t).toBeLessThan(900);
   });
 });
+
+describe("per-agent providers", () => {
+  it("routes each agent's calls to its own provider", async () => {
+    const config = loadConfig("experiments/nogame/A_baseline.yaml", {
+      provider: "mock",
+      duration: 600,
+    });
+    const fake = (marker: string) => ({
+      complete: () =>
+        Promise.resolve({
+          text: marker,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        }),
+    });
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(
+      config,
+      (agent) => (agent === "B" ? fake("FROM-MODEL-X") : fake("FROM-MODEL-Y")),
+      {
+        emit: (e) => collected.events.push(e),
+        post: (p) => collected.posts.push(p),
+        call: (c) => collected.calls.push(c),
+      },
+    );
+    const bPosts = collected.posts.filter((p) => p.agent === "B");
+    const otherPosts = collected.posts.filter((p) => p.agent !== "B");
+    expect(bPosts.length).toBeGreaterThan(0);
+    expect(otherPosts.length).toBeGreaterThan(0);
+    for (const post of bPosts) expect(post.message).toBe("FROM-MODEL-X");
+    for (const post of otherPosts) expect(post.message).toBe("FROM-MODEL-Y");
+  });
+});

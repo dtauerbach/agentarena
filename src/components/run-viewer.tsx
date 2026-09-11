@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 type Meta = {
   runId: string;
   name: string;
+  label?: string;
+  agentModels: Record<string, string>;
   seed: number;
   duration: number;
   provider: string;
@@ -361,7 +363,9 @@ export function RunViewer({ runId }: { runId: string }) {
   return (
     <div className="space-y-4">
       <div className="sticky top-0 z-10 -mx-4 flex flex-wrap items-center gap-3 border-b bg-background/95 px-4 py-2 backdrop-blur">
-        <span className="font-semibold">{meta?.name ?? runId}</span>
+        <span className="font-semibold">
+          {meta?.label ?? meta?.name ?? runId}
+        </span>
         <Badge
           variant={
             status === "running"
@@ -577,6 +581,14 @@ export function RunViewer({ runId }: { runId: string }) {
                         #{item.post.seq ?? item.post.id}
                       </span>
                     )}
+                    {debug &&
+                      meta &&
+                      new Set(Object.values(meta.agentModels ?? {})).size >
+                        1 && (
+                        <span className="font-mono">
+                          {meta.agentModels?.[item.post.agent]}
+                        </span>
+                      )}
                     {debug && item.post.stale_count > 0 && (
                       <span title="posts landed while composing">
                         stale +{item.post.stale_count}
@@ -654,6 +666,7 @@ export function RunViewer({ runId }: { runId: string }) {
             info={agentInfo}
             privatePrompts={meta.privatePrompts}
             memberships={memberships}
+            agentModels={meta.agentModels ?? {}}
             rates={meta.rates}
           />
         )}

@@ -32,6 +32,15 @@ const patchSchema = z.object({
       )
       .optional(),
     wake_mode: z.enum(["direct", "gate"]).optional(),
+    model_per_agent: z
+      .record(
+        z.string(),
+        z.object({
+          provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
+          name: z.string(),
+        }),
+      )
+      .optional(),
     agents_count: z.number().int().positive().optional(),
     duration: z.number().positive().optional(),
     max_words: z.number().int().positive().optional(),
@@ -55,6 +64,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       doc.setIn(["injections"], patch.injections);
     if (patch.wake_mode !== undefined)
       doc.setIn(["wake", "mode"], patch.wake_mode);
+    if (patch.model_per_agent !== undefined) {
+      if (Object.keys(patch.model_per_agent).length === 0)
+        doc.deleteIn(["model", "per_agent"]);
+      else doc.setIn(["model", "per_agent"], patch.model_per_agent);
+    }
     if (patch.agents_count !== undefined)
       doc.setIn(["agents", "count"], patch.agents_count);
     if (patch.duration !== undefined) doc.setIn(["duration"], patch.duration);

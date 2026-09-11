@@ -275,7 +275,8 @@ seed: 1                         # harness RNG only
 duration: 7200                  # simulated seconds
 concurrency: 5                  # parallel model calls
 model:
-  provider: anthropic           # anthropic | mock
+  provider: anthropic           # anthropic | claude_code | openai | mock
+  per_agent: {}                 # e.g. { B: { name: claude-sonnet-4-6 }, C: { provider: openai, name: gpt-6 } }
   name: claude-haiku-4-5   # verify current ids in the docs
   temperature: 1.0
   max_tokens: 100               # hard cap on the API call; max_words is the soft cap
@@ -366,6 +367,9 @@ interface Provider {
   agent, wake, and condition, so it cannot vary between conditions), and
   `temperature` is not controllable (the config value is ignored). For
   contamination-free runs use `anthropic`.
+- `openai`: OpenAI-compatible chat completions over fetch (OPENAI_API_KEY,
+  optional OPENAI_BASE_URL), retries per this section; exists so a society
+  can mix in non-Claude agents. Untested against a live key so far.
 - `anthropic`: `@anthropic-ai/sdk`. Retry 429/5xx with exponential backoff,
   five attempts; then log `provider_error`, treat the wake as `skipped`
   (distinct from silence; the agent's next wake is scheduled normally), and

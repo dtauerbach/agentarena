@@ -31,6 +31,7 @@ export function LaunchForm({
 }: Props) {
   const router = useRouter();
   const [provider, setProvider] = useState<ProviderChoice>("mock");
+  const [label, setLabel] = useState("");
   const [modelChoice, setModelChoice] = useState("");
   const [models, setModels] = useState<string[]>([]);
   const [duration, setDuration] = useState(String(defaultDuration));
@@ -86,6 +87,7 @@ export function LaunchForm({
           file,
           provider,
           model: modelChoice === "" ? undefined : modelChoice,
+          label: label.trim() === "" ? undefined : label.trim(),
           duration: Number(duration),
           seed: Number(seed),
           speed: speed === "max" ? "max" : Number(speed),
@@ -117,6 +119,19 @@ export function LaunchForm({
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-end gap-3">
+        <label
+          htmlFor="launch-label"
+          className="flex flex-col gap-1 text-xs text-muted-foreground"
+        >
+          run name (optional)
+          <Input
+            id="launch-label"
+            className="w-44"
+            placeholder="e.g. sonnet-vs-haiku"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </label>
         <label
           htmlFor="launch-provider"
           className="flex flex-col gap-1 text-xs text-muted-foreground"

@@ -41,6 +41,7 @@ type Props = {
   info: Record<string, AgentInfo>;
   privatePrompts: Record<string, string>;
   memberships: Record<string, string[]>;
+  agentModels: Record<string, string>;
   rates: Rates | null;
 };
 
@@ -51,8 +52,11 @@ export function OperatorPanel({
   info,
   privatePrompts,
   memberships,
+  agentModels,
   rates,
 }: Props) {
+  const models = new Set(Object.values(agentModels));
+  const mixedModels = models.size > 1;
   const multiRoom = Object.keys(memberships).length > 1;
   const roomsOf = (name: string) =>
     Object.entries(memberships)
@@ -97,6 +101,11 @@ export function OperatorPanel({
                   {stateLine(agentInfo)}
                 </span>
               </div>
+              {mixedModels && agentModels[name] && (
+                <p className="pl-4 font-mono text-muted-foreground">
+                  {agentModels[name]}
+                </p>
+              )}
               {multiRoom && (
                 <p className="pl-4 text-muted-foreground">
                   rooms: {roomsOf(name).join(", ") || "none"}

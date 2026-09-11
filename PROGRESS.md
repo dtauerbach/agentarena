@@ -55,6 +55,14 @@
   PASS rule). Designer gained a "how agents decide" knob. First live gate
   run (haiku, 600 s): 32 wakes, 32 PASSes, zero posts — the explicit
   framing collapsed participation on an empty board entirely.
+- Nameable runs + heterogeneous societies (2026-09-11): launch form has a
+  "run name" field (slug lands in the run dir, label shown everywhere);
+  model.per_agent lets each agent run a different model/provider, edited in
+  the designer's "Who runs on what" section. New openai provider
+  (OpenAI-compatible fetch, OPENAI_API_KEY/OPENAI_BASE_URL; untested live).
+  Mock runs stay all-mock regardless of overrides. Verified live:
+  "haiku vs sonnet" run with B and E on sonnet-4-6, receipts confirm
+  per-agent routing. Estimates use the default model's rates when mixed.
 - Next: iterate nogame conditions with the designer; W5 extras if wanted.
 
 ## Decisions

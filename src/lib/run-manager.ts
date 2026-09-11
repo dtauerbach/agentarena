@@ -5,7 +5,9 @@ import {
   env,
   hasCredentialsFor,
   missingCredentialsMessage,
+  openAIBaseUrl,
   readApiKey,
+  readOpenAIKey,
 } from "@/lib/env";
 import type { ConfigOverrides } from "@/lib/sim/config";
 import { loadConfig } from "@/lib/sim/config";
@@ -16,11 +18,13 @@ import type { Pacer, Speed } from "@/lib/sim/pacer";
 import { makePacer } from "@/lib/sim/pacer";
 import type { ModelRates } from "@/lib/sim/pricing";
 import { loadPricing } from "@/lib/sim/pricing";
-import { makeProvider } from "@/lib/sim/providers";
+import { makeProviders, requiredProviders } from "@/lib/sim/providers";
 
 export type SessionMeta = {
   runId: string;
   name: string;
+  label?: string;
+  agentModels: Record<string, string>;
   seed: number;
   duration: number;
   provider: string;
@@ -30,6 +34,24 @@ export type SessionMeta = {
   rooms: Record<string, string[]>;
   rates: ModelRates | null;
 };
+
+function resolveAgentModels(
+  agentNames: string[],
+  model: {
+    provider: string;
+    name: string;
+    per_agent?: Record<string, { provider?: string; name: string }>;
+  },
+): Record<string, string> {
+  if (model.provider === "mock")
+    return Object.fromEntries(agentNames.map((name) => [name, "mock"]));
+  return Object.fromEntries(
+    agentNames.map((name) => [
+      name,
+      model.per_agent?.[name]?.name ?? model.name,
+    ]),
+  );
+}
 
 function resolveRooms(
   rooms: Record<string, { members: "all" | string[] }>,
@@ -96,21 +118,32 @@ export function launchRun(
   configPath: string,
   overrides: ConfigOverrides,
   speed: Speed,
+  label?: string,
 ): string {
   const config = loadConfig(configPath, overrides);
-  if (!hasCredentialsFor(config.model.provider))
-    throw new Error(missingCredentialsMessage(config.model.provider));
-  const provider = makeProvider(config, readApiKey());
-  const dir = makeRunDir(config);
+  for (const providerName of requiredProviders(config))
+    if (!hasCredentialsFor(providerName))
+      throw new Error(missingCredentialsMessage(providerName));
+  const provider = makeProviders(config, {
+    anthropic: readApiKey(),
+    openai: readOpenAIKey(),
+    openaiBaseUrl: openAIBaseUrl(),
+  });
+  const dir = makeRunDir(config, "runs", label);
   const runId = basename(dir);
   const logger = createRunLogger(dir);
-  logger.writeResolvedConfig(config);
+  logger.writeResolvedConfig(
+    config,
+    label !== undefined ? { run_label: label } : {},
+  );
   const pacer = makePacer(speed);
   const session: LiveSession = {
     runId,
     meta: {
       runId,
       name: config.name,
+      ...(label !== undefined ? { label } : {}),
+      agentModels: resolveAgentModels(config.agentNames, config.model),
       seed: config.seed,
       duration: config.duration,
       provider: config.model.provider,
@@ -204,14 +237,21 @@ export function readRunMeta(dir: string): SessionMeta {
     name: string;
     seed: number;
     duration: number;
-    model: { provider: string; name: string };
+    model: {
+      provider: string;
+      name: string;
+      per_agent?: Record<string, { provider?: string; name: string }>;
+    };
     agentNames: string[];
     private_prompts?: Record<string, string>;
     rooms?: Record<string, { members: "all" | string[] }>;
+    run_label?: string;
   };
   return {
     runId: basename(dir),
     name: resolved.name,
+    ...(resolved.run_label !== undefined ? { label: resolved.run_label } : {}),
+    agentModels: resolveAgentModels(resolved.agentNames, resolved.model),
     seed: resolved.seed,
     duration: resolved.duration,
     provider: resolved.model.provider,

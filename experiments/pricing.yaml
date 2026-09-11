@@ -1,4 +1,8 @@
-# USD per million tokens. Hand-maintained; verify against
+# USD per million tokens. Hand-maintained; verify against provider docs
+# before trusting a cost estimate with real money. Models listed here also
+# populate the UI's model pickers — add a row (any provider, e.g. an OpenAI
+# model) and it appears in the launch form and designer suggestions.
+# Original note: verify against
 # https://docs.claude.com/en/docs/about-claude/pricing before trusting
 # a cost estimate with real money. cache_write is the 5-minute-TTL rate.
 models:

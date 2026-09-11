@@ -17,6 +17,8 @@ loadDotEnvLocal();
 
 const envSchema = z.object({
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_BASE_URL: z.string().min(1).optional(),
   ARENA_BUDGET_USD: z.coerce.number().positive().default(5),
   PORT: z.coerce.number().int().positive().default(3000),
 });
@@ -67,6 +69,18 @@ export function hasAnthropicCredentials(): boolean {
   }
 }
 
+export function readOpenAIKey(): string | undefined {
+  return process.env.OPENAI_API_KEY ?? envLocalValue("OPENAI_API_KEY");
+}
+
+export function openAIBaseUrl(): string {
+  return (
+    process.env.OPENAI_BASE_URL ??
+    envLocalValue("OPENAI_BASE_URL") ??
+    "https://api.openai.com/v1"
+  );
+}
+
 export function hasClaudeCodeCredentials(): boolean {
   return existsSync(join(homedir(), ".claude", ".credentials.json"));
 }
@@ -74,11 +88,14 @@ export function hasClaudeCodeCredentials(): boolean {
 export function hasCredentialsFor(provider: string): boolean {
   if (provider === "mock") return true;
   if (provider === "claude_code") return hasClaudeCodeCredentials();
+  if (provider === "openai") return readOpenAIKey() !== undefined;
   return hasAnthropicCredentials();
 }
 
 export function missingCredentialsMessage(provider: string): string {
   if (provider === "claude_code")
     return "Claude Code is not logged in in this environment; run `claude` once to log in";
+  if (provider === "openai")
+    return "no OpenAI credentials: add OPENAI_API_KEY (and optionally OPENAI_BASE_URL) to .env.local";
   return "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`";
 }

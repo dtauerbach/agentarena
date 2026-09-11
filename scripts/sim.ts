@@ -4,7 +4,9 @@ import {
   env,
   hasCredentialsFor,
   missingCredentialsMessage,
+  openAIBaseUrl,
   readApiKey,
+  readOpenAIKey,
 } from "../src/lib/env";
 import { runBatch } from "../src/lib/sim/batch";
 import type { ConfigOverrides } from "../src/lib/sim/config";
@@ -15,7 +17,7 @@ import { createRunLogger, makeRunDir } from "../src/lib/sim/log";
 import { analyzeRun } from "../src/lib/sim/metrics/analyze";
 import { analyzeBatch } from "../src/lib/sim/metrics/batch";
 import { loadPricing, usd } from "../src/lib/sim/pricing";
-import { makeProvider } from "../src/lib/sim/providers";
+import { makeProviders, requiredProviders } from "../src/lib/sim/providers";
 import { makeMockProvider } from "../src/lib/sim/providers/mock";
 
 function usage(): never {
@@ -35,6 +37,7 @@ type Flags = ConfigOverrides & {
   n: number;
   concurrency: number;
   seedStart: number;
+  label?: string;
 };
 
 function parseFlags(rest: string[]): Flags {
@@ -62,6 +65,9 @@ function parseFlags(rest: string[]): Flags {
       case "--model":
         flags.model = value;
         break;
+      case "--label":
+        flags.label = value;
+        break;
       case "--n":
         flags.n = Number(value);
         break;
@@ -78,11 +84,20 @@ function parseFlags(rest: string[]): Flags {
   return flags;
 }
 
-function guardCredentials(provider: string): void {
-  if (!hasCredentialsFor(provider)) {
-    console.error(missingCredentialsMessage(provider));
-    process.exit(1);
-  }
+function guardCredentials(providers: string[]): void {
+  for (const provider of providers)
+    if (!hasCredentialsFor(provider)) {
+      console.error(missingCredentialsMessage(provider));
+      process.exit(1);
+    }
+}
+
+function providerKeys() {
+  return {
+    anthropic: readApiKey(),
+    openai: readOpenAIKey(),
+    openaiBaseUrl: openAIBaseUrl(),
+  };
 }
 
 function guardBudget(
@@ -115,12 +130,15 @@ function guardBudget(
 
 async function commandRun(configPath: string, flags: Flags): Promise<void> {
   const config = loadConfig(configPath, flags);
-  guardCredentials(config.model.provider);
+  guardCredentials(requiredProviders(config));
   guardBudget(configPath, flags, 1, flags.yes);
-  const provider = makeProvider(config, readApiKey());
-  const dir = makeRunDir(config);
+  const provider = makeProviders(config, providerKeys());
+  const dir = makeRunDir(config, "runs", flags.label);
   const logger = createRunLogger(dir);
-  logger.writeResolvedConfig(config);
+  logger.writeResolvedConfig(
+    config,
+    flags.label !== undefined ? { run_label: flags.label } : {},
+  );
   console.log(`run dir: ${dir}`);
   const summary = await runEngine(config, provider, logger.hooks);
   await logger.close();
@@ -150,7 +168,7 @@ async function commandRun(configPath: string, flags: Flags): Promise<void> {
 async function commandBatch(configPath: string, flags: Flags): Promise<void> {
   if (!Number.isInteger(flags.n) || flags.n < 1) usage();
   const probe = loadConfig(configPath, flags);
-  guardCredentials(probe.model.provider);
+  guardCredentials(requiredProviders(probe));
   guardBudget(configPath, flags, flags.n, flags.yes);
   const batchDir = await runBatch({
     configPath,
@@ -161,9 +179,9 @@ async function commandBatch(configPath: string, flags: Flags): Promise<void> {
     makeProvider: (seed) =>
       probe.model.provider === "mock"
         ? makeMockProvider(seed)
-        : makeProvider(
+        : makeProviders(
             loadConfig(configPath, { ...flags, seed }),
-            readApiKey(),
+            providerKeys(),
           ),
     onRunDone: (seed, finished, total) =>
       console.log(`run s${seed} done (${finished}/${total})`),

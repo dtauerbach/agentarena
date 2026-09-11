@@ -5,6 +5,7 @@ import { Designer } from "@/components/designer";
 import { LaunchForm } from "@/components/launch-form";
 import { YamlEditor } from "@/components/yaml-editor";
 import { loadExperimentConfig, readExperimentYaml } from "@/lib/experiments";
+import { loadPricing } from "@/lib/sim/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,9 @@ export default async function ExperimentPage({
     initial = {
       commonPrompt: config.common_prompt,
       wakeMode: config.wake.mode,
+      modelPerAgent: config.model.per_agent,
+      models: Object.keys(loadPricing()),
+      defaultModel: config.model.name,
       privatePrompts: config.private_prompts,
       injections: config.injections.map((injection) => ({
         at: injection.at,

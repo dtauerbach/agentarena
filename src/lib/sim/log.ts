@@ -17,11 +17,22 @@ function timestamp(date: Date): string {
   );
 }
 
-export function makeRunDir(config: Config, baseDir = "runs"): string {
-  const dir = join(
-    baseDir,
-    `${timestamp(new Date())}-${config.name}-s${config.seed}`,
-  );
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+}
+
+export function makeRunDir(
+  config: Config,
+  baseDir = "runs",
+  label?: string,
+): string {
+  const slug =
+    label !== undefined && slugify(label) !== "" ? slugify(label) : config.name;
+  const dir = join(baseDir, `${timestamp(new Date())}-${slug}-s${config.seed}`);
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -51,7 +62,7 @@ function arenaVersion(): string {
 
 export type RunLogger = {
   hooks: EngineHooks;
-  writeResolvedConfig(config: Config): void;
+  writeResolvedConfig(config: Config, extra?: Record<string, unknown>): void;
   close(): Promise<void>;
 };
 
@@ -74,12 +85,13 @@ export function createRunLogger(dir: string): RunLogger {
         calls.write(line({ ...call, wall: new Date().toISOString() }));
       },
     },
-    writeResolvedConfig(config) {
+    writeResolvedConfig(config, extra = {}) {
       writeFileSync(
         join(dir, "config.resolved.json"),
         JSON.stringify(
           {
             ...config,
+            ...extra,
             git_commit: gitCommit(),
             started_at: new Date().toISOString(),
             arena_version: arenaVersion(),

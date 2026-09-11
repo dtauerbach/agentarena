@@ -167,10 +167,12 @@ type CallResult =
 
 export async function runEngine(
   config: Config,
-  provider: Provider,
+  provider: Provider | ((agent: string) => Provider),
   hooks: EngineHooks,
   opts: { pacer?: Pacer; operator?: OperatorPort } = {},
 ): Promise<RunSummary> {
+  const providerFor =
+    typeof provider === "function" ? provider : () => provider;
   const rng = makeRng(config.seed);
   const agents = new Map<string, AgentState>(
     config.agentNames.map((name) => [name, makeAgentState(config, name)]),
@@ -380,7 +382,7 @@ export async function runEngine(
     const started = Date.now();
     summary.calls += 1;
     try {
-      const result = await provider.complete({
+      const result = await providerFor(agent.name).complete({
         system: config.common_prompt,
         blocks,
         cacheableBlocks,

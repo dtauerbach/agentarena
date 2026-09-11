@@ -46,6 +46,15 @@ export const configSchema = z.strictObject({
       name: z.string(),
       temperature: z.number().min(0).max(2).default(1.0),
       max_tokens: z.number().int().positive().default(100),
+      per_agent: z
+        .record(
+          z.string(),
+          z.strictObject({
+            provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
+            name: z.string(),
+          }),
+        )
+        .default({}),
     })
     .prefault({ name: "" }),
   agents: z
@@ -159,7 +168,7 @@ export type Config = z.infer<typeof configSchema> & { agentNames: string[] };
 export type ConfigOverrides = {
   duration?: number;
   seed?: number;
-  provider?: "anthropic" | "claude_code" | "mock";
+  provider?: "anthropic" | "claude_code" | "openai" | "mock";
   model?: string;
 };
 
@@ -262,6 +271,9 @@ export function loadConfig(
   for (const name of Object.keys(config.activity.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`activity.per_agent: unknown agent "${name}"`);
+  for (const name of Object.keys(config.model.per_agent))
+    if (!agentNames.includes(name))
+      throw new Error(`model.per_agent: unknown agent "${name}"`);
   for (const name of Object.keys(config.compose.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`compose.per_agent: unknown agent "${name}"`);
