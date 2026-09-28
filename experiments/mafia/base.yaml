@@ -5,6 +5,10 @@
 # and mute night-kill victims. Every action is logged as an event.
 # Everything agents read lives in this file (hard rules 2 and 3).
 name: base
+description: >-
+  Classic social deduction: seven players, two secret mafia with a private
+  night room. Village votes by day, mafia kill by night. The auto variation
+  referees itself with a moderator model; classic needs you to moderate.
 seed: 1
 duration: 3600
 concurrency: 5

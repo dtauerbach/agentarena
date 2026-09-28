@@ -31,16 +31,22 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               arena
             </Link>
             <Link
-              href="/#variations"
+              href="/create"
               className="text-muted-foreground hover:text-foreground"
             >
-              variations
+              create
             </Link>
             <Link
-              href="/#societies"
+              href="/games"
               className="text-muted-foreground hover:text-foreground"
             >
-              societies
+              play
+            </Link>
+            <Link
+              href="/discover"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              discover
             </Link>
             <Link
               href="/lab"

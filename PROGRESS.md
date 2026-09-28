@@ -37,8 +37,14 @@
   objection in night rooms across ALL games, public role leaks with zero
   villager reaction, confabulated-evidence consensus, terminal echo
   cascades, and cross-game moderator inconsistency on misplaced KILLs.
-- Next: M3 (three-door UI), M4 (verify tooling). Newest Opus id verified:
-  `claude-opus-5`.
+- **M3 accepted (2026-09-28): three-door UI.** Home = Create / Play /
+  Discover cards + latest observer summary; /create wizard (blank template
+  in templates/blank.yaml, or copy any game's base) scaffolds
+  experiments/<slug>/{base.yaml, main.yaml} and opens the designer; /games
+  gallery + per-game pages (description field in base.yaml, variation
+  cards, that game's recent runs); /discover = observer reports across
+  batches + recent societies; nav create·play·discover·lab. 8 e2e flows.
+- Next: M4 (verify tooling). Newest Opus id verified: `claude-opus-5`.
 
 ## Decisions
 

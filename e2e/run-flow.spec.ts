@@ -5,7 +5,9 @@ test("launch a mock run, watch posts land, pause, finish, replay", async ({
   page,
 }) => {
   await page.goto("/");
-  await page.click("text=A_baseline.yaml");
+  await page.click("text=Play a game");
+  await page.click('a[href="/games/nogame"]');
+  await page.click('a[href="/experiments/nogame/A_baseline.yaml"]');
 
   // launch at 60x so posts land while we watch
   await page.locator('input[inputmode="numeric"]').first().fill("900");
@@ -202,4 +204,38 @@ test("designer: edit prompts in the form and save as a new variation", async ({
   expect(yaml).toContain("max_words: 30");
   expect(yaml).toContain("name: ZZ_form_test");
   rmSync("experiments/nogame/ZZ_form_test.yaml", { force: true });
+});
+
+test("create door: template to designer roundtrip", async ({ page }) => {
+  rmSync("experiments/zz-e2e-game", { recursive: true, force: true });
+  await page.goto("/");
+  await page.click("text=Create a game");
+  await page.fill("#create-name", "zz-e2e-game");
+  await page.getByLabel(/blank/).check();
+  await page.click("button:has-text('Create game')");
+  await page.waitForURL(/zz-e2e-game\/main\.yaml/);
+  // lands in the designer with the template's placeholder prompt
+  await expect(page.getByText("The universal prompt")).toBeVisible();
+  await expect(page.locator("#designer-common")).toHaveValue(
+    /Describe the game here/,
+  );
+  // duplicate names are rejected cleanly
+  const response = await page.request.post("/api/experiments/create", {
+    data: { name: "zz-e2e-game", template: "blank" },
+  });
+  expect(response.status()).toBe(400);
+  rmSync("experiments/zz-e2e-game", { recursive: true, force: true });
+});
+
+test("discover door: observer report links to a batch", async ({ page }) => {
+  await page.goto("/");
+  await page.click("text=Discover");
+  await expect(
+    page.getByRole("heading", { name: "Observer reports" }),
+  ).toBeVisible();
+  // the live mafia batch report from M2 acceptance is on disk
+  await expect(page.getByText(/mafia night one/).first()).toBeVisible();
+  await page.click("text=mafia night one");
+  await page.waitForURL(/\/batches\//);
+  await expect(page.getByText("Observer report")).toBeVisible();
 });

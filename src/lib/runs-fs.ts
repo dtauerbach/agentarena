@@ -83,3 +83,41 @@ export function runProviderErrorCount(runId: string): number {
     return 0;
   }
 }
+
+// batches that have an observer report, newest first — the discover feed
+export function listObservedBatches(): {
+  batchId: string;
+  label?: string;
+  report: unknown;
+  wall: string;
+}[] {
+  const out: {
+    batchId: string;
+    label?: string;
+    report: unknown;
+    wall: string;
+  }[] = [];
+  for (const batchId of listBatchDirs()) {
+    const path = join(RUNS_DIR, batchId, "observer.json");
+    if (!existsSync(path)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8")) as {
+        report?: unknown;
+        wall: string;
+      };
+      if (!parsed.report) continue;
+      const info = JSON.parse(
+        readFileSync(join(RUNS_DIR, batchId, "batch.json"), "utf8"),
+      ) as { label?: string };
+      out.push({
+        batchId,
+        ...(info.label !== undefined ? { label: info.label } : {}),
+        report: parsed.report,
+        wall: parsed.wall,
+      });
+    } catch {
+      // unreadable report: skip
+    }
+  }
+  return out;
+}

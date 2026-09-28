@@ -35,6 +35,7 @@ const composePerAgentSchema = z.strictObject({
 
 export const configSchema = z.strictObject({
   name: z.string(),
+  description: z.string().optional(),
   seed: z.number().int().nonnegative().default(1),
   duration: z.number().positive().default(7200),
   concurrency: z.number().int().positive().default(5),
