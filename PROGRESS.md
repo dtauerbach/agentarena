@@ -13,15 +13,39 @@
   replay. Headless: `npm run sim -- run|batch|analyze`.
 - Providers: `mock` (free), `claude_code` (subscription; default),
   `anthropic` (API credits; org currently unfunded), `openai` (untested).
-- **Current work: M-series (plan of 2026-09-28)** — M1 automated moderator
-  (auto-Mafia + mechanical tallies + trust quick-fixes), M2 live batches +
-  corpus observer, M3 three-door UI, M4 verifiability tooling. Newest Opus
-  id verified 2026-09-28: `claude-opus-5` (5-5/5-1 do not resolve).
-- Known issue being fixed in M1: a run whose calls all fail (e.g. expired
-  Claude Code login — happened 2026-09-18) renders as an empty board in
-  watch mode; error banner + pre-launch credential probe land with M1.
+- **M1 accepted (2026-09-28): Mafia plays itself.** Config-driven moderator
+  (`moderator:` block — cadence wakes, omniscient multi-room view, memory,
+  line-protocol commands via the operator port, mechanical VOTE/KILL
+  tallies). First live game (`experiments/mafia/auto.yaml`, haiku players,
+  opus-5 moderator, $1.31 API-equiv on subscription): B lynched Day 1
+  (mafia), lone mafia E failed to kill at night, village piled 11 votes on E
+  Day 2, moderator declared village win and STOPped at 0:40 — zero provider
+  errors, zero unparsed moderator lines, 121/121 calls with persisted
+  claude-code sessions (resume any with `claude --resume <session_id>`).
+- M1 trust fixes: watch-mode red banner + home-card badge for failed calls;
+  pre-launch claude_code credential probe (the 2026-09-18 failure mode);
+  session persistence default ON (ARENA_EPHEMERAL_SESSIONS=1 disables).
+- Next: M2 (live batches from UI + corpus observer), M3 (three-door UI),
+  M4 (verify tooling). Newest Opus id verified: `claude-opus-5`.
 
 ## Decisions
+
+- M1 moderator: engine event kind MODERATOR sorts between POST and WAKE, so
+  rulings at t apply before same-instant wakes; runs alone (never in agent
+  batches); commands re-use applyOperator with a via tag (moderator: true).
+  Unknown verbs/targets -> moderator_unparsed with reason, never applied.
+  parseModerator lives in parse.ts with a local ModeratorCommand type to
+  avoid an engine import cycle. Mock moderator replies cycle a fixed script
+  keyed on the instruction containing "NOTE" (no RNG draw — existing
+  byte-identity untouched).
+- Tallies are engine-side counting of config regex captures per room since
+  the last moderator wake — rendering for the referee, never resolution
+  (hard rule 1 amended in CLAUDE.md/SPEC accordingly).
+- estimateCost now takes the whole pricing table (moderator may use a
+  different model; also fixes latent per_agent mispricing).
+- probeClaudeCode(model) pings with the run's own default model before any
+  live claude_code launch (10-min cache); a garbled CLI/logout is caught
+  pre-run instead of producing a silent-empty board.
 
 - No agent frameworks, by design: providers are thin readable files over the
   official SDK / claude CLI, and auditability comes from calls.jsonl (full
