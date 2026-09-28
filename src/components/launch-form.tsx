@@ -39,12 +39,33 @@ type Credentials = Record<LiveProvider, boolean>;
 function modelGroups(models: string[]) {
   const claude = models.filter((m) => m.startsWith("claude-"));
   const other = models.filter((m) => !m.startsWith("claude-"));
-  const groups: { provider: LiveProvider; label: string; models: string[] }[] =
-    [
-      { provider: "claude_code", label: "Claude subscription", models: claude },
-      { provider: "anthropic", label: "Anthropic API credits", models: claude },
-      { provider: "openai", label: "OpenAI-compatible", models: other },
-    ];
+  // the prefix is part of the option text, so a closed dropdown still shows
+  // whether a pick spends subscription usage or real API credits
+  const groups: {
+    provider: LiveProvider;
+    label: string;
+    prefix: string;
+    models: string[];
+  }[] = [
+    {
+      provider: "claude_code",
+      label: "Claude subscription (usage, no dollars)",
+      prefix: "",
+      models: claude,
+    },
+    {
+      provider: "anthropic",
+      label: "Anthropic API (real credits)",
+      prefix: "API credits · ",
+      models: claude,
+    },
+    {
+      provider: "openai",
+      label: "OpenAI-compatible (real credits)",
+      prefix: "API credits · ",
+      models: other,
+    },
+  ];
   return groups.filter((g) => g.models.length > 0);
 }
 
@@ -237,6 +258,7 @@ export function LaunchForm({
                   value={`${group.provider}|${name}`}
                   disabled={!ok}
                 >
+                  {group.prefix}
                   {name}
                 </option>
               ))}
@@ -501,6 +523,25 @@ export function LaunchForm({
               Purity note: Claude Code injects a constant environment block the
               agents can see, and temperature is not controllable. Constant
               across agents and conditions; see docs/SPEC.md §10.
+            </p>
+          )}
+          {spendsCredits && (
+            <p className="text-destructive">
+              On API credits (real money):{" "}
+              {[
+                ...(provider === "anthropic" ? ["default model"] : []),
+                ...Object.entries(perAgent)
+                  .filter(
+                    (entry) =>
+                      (entry[1].provider ?? runProvider) !== "claude_code",
+                  )
+                  .map(([name]) => name),
+                ...(moderatorOverride &&
+                (moderatorOverride.provider ?? runProvider) !== "claude_code"
+                  ? ["moderator"]
+                  : []),
+              ].join(", ")}
+              . Pick the plain (subscription) entries to avoid this.
             </p>
           )}
           {spendsCredits ? (
