@@ -469,6 +469,27 @@ describe("per-agent providers", () => {
   });
 });
 
+describe("output.delimiter", () => {
+  it("mock mafia posts land through the POST: marker, reasoning stays raw", async () => {
+    const config = loadConfig("experiments/mafia/manual.yaml", {
+      provider: "mock",
+      duration: 900,
+    });
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, makeMockProvider(config.seed), {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    expect(collected.posts.length).toBeGreaterThan(0);
+    for (const post of collected.posts) {
+      expect(post.raw).toContain("POST:");
+      expect(post.message).not.toContain("POST:");
+      expect(post.message).not.toContain("mock thinking");
+    }
+  });
+});
+
 describe("M1: config-driven moderator", () => {
   const MOD_TEMPLATES = {
     prompt: "You are the referee.",
@@ -501,6 +522,7 @@ describe("M1: config-driven moderator", () => {
         cadence: 300,
         temperature: 0,
         max_tokens: 400,
+        thinking: "off" as const,
         tallies: [],
         ...overrides,
       },

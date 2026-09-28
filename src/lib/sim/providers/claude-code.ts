@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import type { Effort, Thinking } from "../config";
 import type { Provider } from "../types";
 
 // Runs each wake as a single `claude -p` call, billed to the operator's
@@ -8,10 +9,16 @@ import type { Provider } from "../types";
 // see — identical for every agent and wake, so it cannot vary between
 // conditions — and `temperature` is not controllable (the config value is
 // ignored). Our system prompt replaces Claude Code's entirely; tools,
-// settings files, and thinking are disabled; output is capped via env.
+// settings files are disabled; output is capped via env. Thinking is off
+// unless configured: the CLI then thinks privately (adaptive, or a token
+// budget via MAX_THINKING_TOKENS) and reports only the thinking token count
+// (usage.output_tokens_details) — the reasoning text is not retrievable this
+// way; use the anthropic provider to log a summarized trace.
 export function makeClaudeCodeProvider(options: {
   model: string;
   webTools?: boolean;
+  thinking?: Thinking;
+  effort?: Effort;
 }): Provider {
   return {
     complete(req) {
@@ -41,6 +48,7 @@ export function makeClaudeCodeProvider(options: {
           : []),
         "--model",
         options.model,
+        ...(options.effort !== undefined ? ["--effort", options.effort] : []),
         "--output-format",
         "json",
       ];
@@ -51,7 +59,10 @@ export function makeClaudeCodeProvider(options: {
       delete env.ANTHROPIC_CONFIG_DIR;
       delete env.CLAUDECODE;
       delete env.CLAUDE_CODE_ENTRYPOINT;
-      env.MAX_THINKING_TOKENS = "0";
+      const thinking = options.thinking ?? "off";
+      if (thinking === "off") env.MAX_THINKING_TOKENS = "0";
+      else if (thinking === "adaptive") delete env.MAX_THINKING_TOKENS;
+      else env.MAX_THINKING_TOKENS = String(thinking);
       env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(req.maxTokens);
       return new Promise((resolve, reject) => {
         const child = execFile(

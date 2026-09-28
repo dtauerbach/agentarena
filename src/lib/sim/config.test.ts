@@ -83,6 +83,24 @@ describe("config loading", () => {
     expect(classic.rooms.night?.members).toEqual([]);
   });
 
+  it("thinking and delimiter knobs parse, with launch-time thinking overrides", () => {
+    const mafia = loadConfig("experiments/mafia/classic.yaml");
+    expect(mafia.output.delimiter).toBe("POST:");
+    expect(mafia.model.thinking).toBe("off");
+    const thinking = loadConfig("experiments/mafia/classic.yaml", {
+      thinking: "adaptive",
+    });
+    expect(thinking.model.thinking).toBe("adaptive");
+    expect(thinking.moderator?.thinking).toBe("adaptive");
+    const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
+    const bad = join(dir, "thinking.yaml");
+    writeFileSync(
+      bad,
+      `extends: ${join(process.cwd(), BASE)}\nname: t\nmodel:\n  thinking: 100\n`,
+    );
+    expect(() => loadConfig(bad)).toThrow(/model.thinking/);
+  });
+
   it("viewer.moves must name a known room and a valid pattern", () => {
     const mafia = loadConfig("experiments/mafia/classic.yaml");
     expect(mafia.viewer.moves.map((m) => m.name)).toEqual(["vote", "kill"]);

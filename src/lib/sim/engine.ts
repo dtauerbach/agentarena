@@ -1054,7 +1054,11 @@ export async function runEngine(
         });
         continue;
       }
-      const reply = parseWake(turn.text, config.activity.check_back);
+      const reply = parseWake(
+        turn.text,
+        config.activity.check_back,
+        config.output.delimiter,
+      );
       state.preference = reply.preference;
       if (reply.silent) {
         summary.silences += 1;

@@ -8,6 +8,34 @@ import {
   parseWake,
 } from "./parse";
 
+describe("wake parsing with a delimiter", () => {
+  it("posts only what follows the last marker line; the rest is private", () => {
+    const reply = parseWake(
+      "Bob looks shifty.\nPOST: draft\nActually no.\nPOST:\nI vote Bob.\nVOTE Bob",
+      false,
+      "POST:",
+    );
+    expect(reply.silent).toBe(false);
+    if (!reply.silent) expect(reply.message).toBe("I vote Bob.\nVOTE Bob");
+  });
+
+  it("text on the marker line counts; the marker is case-insensitive", () => {
+    const reply = parseWake("thinking…\npost: Hello all", false, "POST:");
+    if (reply.silent) throw new Error("expected a post");
+    expect(reply.message).toBe("Hello all");
+  });
+
+  it("no marker, or PASS after it, is silence; NEXT still parses", () => {
+    expect(
+      parseWake("I have thoughts but forgot the marker", false, "POST:").silent,
+    ).toBe(true);
+    expect(parseWake("hmm\nPOST:\nPASS", false, "POST:").silent).toBe(true);
+    const reply = parseWake("hmm\nPOST:\nRED\nNEXT soon", true, "POST:");
+    expect(reply.preference).toBe("soon");
+    if (!reply.silent) expect(reply.message).toBe("RED");
+  });
+});
+
 describe("wake parsing", () => {
   it("treats empty, whitespace, and PASS as silence", () => {
     expect(parseWake("", false).silent).toBe(true);

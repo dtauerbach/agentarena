@@ -120,6 +120,15 @@ export function LaunchForm({
   const [moderatorChoice, setModeratorChoice] = useState<ModelChoice | null>(
     moderator ?? null,
   );
+  // "" = as configured in the YAML; otherwise applied to every agent and the
+  // moderator for this run
+  const [thinkingChoice, setThinkingChoice] = useState("");
+  const thinkingOverride: "off" | "adaptive" | number | undefined =
+    thinkingChoice === ""
+      ? undefined
+      : thinkingChoice === "off" || thinkingChoice === "adaptive"
+        ? thinkingChoice
+        : Number(thinkingChoice);
 
   const live = provider !== "mock";
   const runProvider = live ? provider : "claude_code";
@@ -147,6 +156,7 @@ export function LaunchForm({
         model: modelChoice === "" ? undefined : modelChoice,
         perAgent,
         moderator: moderatorOverride,
+        thinking: thinkingOverride,
         duration: Number(duration) || undefined,
         seed: Number(seed) || undefined,
       }),
@@ -171,6 +181,7 @@ export function LaunchForm({
     modelChoice,
     perAgent,
     moderatorOverride,
+    thinkingOverride,
     duration,
     seed,
   ]);
@@ -193,6 +204,7 @@ export function LaunchForm({
           model: modelChoice === "" ? undefined : modelChoice,
           perAgent: live ? perAgent : undefined,
           moderator: live ? moderatorOverride : undefined,
+          thinking: live ? thinkingOverride : undefined,
           label: label.trim() === "" ? undefined : label.trim(),
           duration: Number(duration),
           seed: Number(seed),
@@ -330,6 +342,26 @@ export function LaunchForm({
                     {name}
                   </option>
                 ))}
+            </select>
+          </label>
+        )}
+        {live && (
+          <label
+            htmlFor="launch-thinking"
+            className="flex flex-col gap-1 text-xs text-muted-foreground"
+            title="Private reasoning before each reply. Adaptive suits Opus/Sonnet 4.6+; the token budget form is for Haiku 4.5. Costs output tokens; via claude_code only the token count is logged."
+          >
+            thinking
+            <select
+              id="launch-thinking"
+              className="h-9 rounded-md border bg-transparent px-2 text-sm"
+              value={thinkingChoice}
+              onChange={(e) => setThinkingChoice(e.target.value)}
+            >
+              <option value="">as configured</option>
+              <option value="off">off</option>
+              <option value="adaptive">adaptive (Opus/Sonnet 4.6+)</option>
+              <option value="2048">budget 2048 (Haiku 4.5)</option>
             </select>
           </label>
         )}

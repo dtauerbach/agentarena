@@ -33,6 +33,17 @@ const composePerAgentSchema = z.strictObject({
   factor: z.number().positive().optional(),
 });
 
+// Private reasoning before the reply. "adaptive" is the current-model form
+// (Opus/Sonnet 4.6+); a number is a token budget for older models (Haiku
+// 4.5). Off by default: it costs output tokens and, through claude_code, the
+// reasoning text is not retrievable — only its token count is logged.
+const thinkingSchema = z.union([
+  z.literal("off"),
+  z.literal("adaptive"),
+  z.number().int().min(1024),
+]);
+const effortSchema = z.enum(["low", "medium", "high", "xhigh", "max"]);
+
 export const configSchema = z.strictObject({
   name: z.string(),
   description: z.string().optional(),
@@ -47,12 +58,16 @@ export const configSchema = z.strictObject({
       name: z.string(),
       temperature: z.number().min(0).max(2).default(1.0),
       max_tokens: z.number().int().positive().default(100),
+      thinking: thinkingSchema.default("off"),
+      effort: effortSchema.optional(),
       per_agent: z
         .record(
           z.string(),
           z.strictObject({
             provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
             name: z.string(),
+            thinking: thinkingSchema.optional(),
+            effort: effortSchema.optional(),
           }),
         )
         .default({}),
@@ -134,6 +149,10 @@ export const configSchema = z.strictObject({
     .strictObject({
       mode: z.enum(["text", "one_word"]).default("text"),
       max_words: z.number().int().positive().default(40),
+      // a private scratchpad in one call: only the text after the last line
+      // starting with this marker is posted; everything before it stays in
+      // the raw log. No marker in the reply = silence (logged, never retried).
+      delimiter: z.string().min(1).optional(),
     })
     .prefault({}),
   common_prompt: z.string(),
@@ -167,6 +186,8 @@ export const configSchema = z.strictObject({
       cadence: z.number().positive(),
       temperature: z.number().min(0).max(2).default(0),
       max_tokens: z.number().int().positive().default(400),
+      thinking: thinkingSchema.default("off"),
+      effort: effortSchema.optional(),
       // mechanical counting of structured moves (e.g. "VOTE X") since the
       // moderator's last wake — rendering, not adjudication
       tallies: z
@@ -220,6 +241,9 @@ export type ModelChoice = {
   name: string;
 };
 
+export type Thinking = z.infer<typeof thinkingSchema>;
+export type Effort = z.infer<typeof effortSchema>;
+
 export type ConfigOverrides = {
   duration?: number;
   seed?: number;
@@ -228,6 +252,8 @@ export type ConfigOverrides = {
   // launch-time per-player models, merged over model.per_agent
   perAgent?: Record<string, ModelChoice>;
   moderator?: ModelChoice;
+  // launch-time thinking for every agent (and the moderator)
+  thinking?: Thinking;
 };
 
 type RawDoc = Record<string, unknown>;
@@ -303,6 +329,21 @@ export function loadConfig(
         ...overrides.perAgent,
       },
     };
+  }
+  if (overrides.thinking !== undefined) {
+    raw.model = {
+      ...((raw.model as RawDoc | undefined) ?? {}),
+      thinking: overrides.thinking,
+    };
+    if (
+      raw.moderator !== undefined &&
+      raw.moderator !== null &&
+      typeof raw.moderator === "object"
+    )
+      raw.moderator = {
+        ...(raw.moderator as RawDoc),
+        thinking: overrides.thinking,
+      };
   }
   if (overrides.moderator !== undefined) {
     if (raw.moderator === undefined || typeof raw.moderator !== "object")

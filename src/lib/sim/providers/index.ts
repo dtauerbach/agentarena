@@ -1,4 +1,4 @@
-import type { Config } from "../config";
+import type { Config, Effort, Thinking } from "../config";
 import type { Provider } from "../types";
 import { makeAnthropicProvider } from "./anthropic";
 import { makeClaudeCodeProvider } from "./claude-code";
@@ -16,6 +16,8 @@ export type ProviderSpec = {
   model: string;
   seed?: number;
   webTools?: boolean;
+  thinking?: Thinking;
+  effort?: Effort;
 };
 
 // One-off provider construction — shared by the per-agent factory, the
@@ -28,6 +30,8 @@ export function makeProvider(spec: ProviderSpec, keys: ProviderKeys): Provider {
       return makeClaudeCodeProvider({
         model: spec.model,
         webTools: spec.webTools ?? false,
+        thinking: spec.thinking ?? "off",
+        ...(spec.effort !== undefined ? { effort: spec.effort } : {}),
       });
     case "openai":
       return makeOpenAIProvider({
@@ -40,6 +44,8 @@ export function makeProvider(spec: ProviderSpec, keys: ProviderKeys): Provider {
         apiKey: keys.anthropic,
         model: spec.model,
         webTools: spec.webTools ?? false,
+        thinking: spec.thinking ?? "off",
+        ...(spec.effort !== undefined ? { effort: spec.effort } : {}),
       });
   }
 }
@@ -59,12 +65,21 @@ export function makeProviders(
   const instance = (
     provider: ProviderSpec["provider"],
     model: string,
+    thinking: Thinking,
+    effort: Effort | undefined,
   ): Provider => {
-    const key = `${provider}:${model}`;
+    const key = `${provider}:${model}:${thinking}:${effort ?? ""}`;
     let cached = cache.get(key);
     if (!cached) {
       cached = makeProvider(
-        { provider, model, seed: config.seed, webTools: config.tools.web },
+        {
+          provider,
+          model,
+          seed: config.seed,
+          webTools: config.tools.web,
+          thinking,
+          ...(effort !== undefined ? { effort } : {}),
+        },
         keys,
       );
       cache.set(key, cached);
@@ -73,16 +88,20 @@ export function makeProviders(
   };
   return (agent) => {
     if (config.model.provider === "mock")
-      return instance("mock", config.model.name);
+      return instance("mock", config.model.name, "off", undefined);
     if (agent === "moderator" && config.moderator)
       return instance(
         config.moderator.provider ?? config.model.provider,
         config.moderator.model,
+        config.moderator.thinking,
+        config.moderator.effort,
       );
     const override = config.model.per_agent[agent];
     return instance(
       override?.provider ?? config.model.provider,
       override?.name ?? config.model.name,
+      override?.thinking ?? config.model.thinking,
+      override?.effort ?? config.model.effort,
     );
   };
 }

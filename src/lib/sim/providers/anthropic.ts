@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import type { Effort, Thinking } from "../config";
 import type { Provider } from "../types";
 
 export type AnthropicOptions = {
@@ -10,7 +11,29 @@ export type AnthropicOptions = {
   // model compatibility. Search happens on Anthropic's servers and the full
   // response (queries, results, citations) lands in calls.jsonl.
   webTools?: boolean;
+  // "adaptive" for Opus/Sonnet 4.6 and later; a token budget for Haiku 4.5
+  // and older (sent as thinking.enabled). The summarized trace is requested
+  // so private reasoning lands in calls.jsonl as thinking blocks.
+  thinking?: Thinking;
+  effort?: Effort;
 };
+
+function thinkingParams(
+  thinking: Thinking,
+  maxTokens: number,
+): { thinking?: unknown; max_tokens: number } {
+  if (thinking === "off") return { max_tokens: maxTokens };
+  if (thinking === "adaptive")
+    return {
+      thinking: { type: "adaptive", display: "summarized" },
+      max_tokens: maxTokens,
+    };
+  // budget_tokens must stay below max_tokens; the post cap is on top of it
+  return {
+    thinking: { type: "enabled", budget_tokens: thinking },
+    max_tokens: maxTokens + thinking,
+  };
+}
 
 // Retries for 429/5xx/connection errors are the SDK's exponential backoff:
 // maxRetries 4 = five attempts (SPEC §10). A request that still fails throws;
@@ -25,11 +48,18 @@ export function makeAnthropicProvider(options: AnthropicOptions): Provider {
       // two cache breakpoints: the shared system prompt, and the last
       // complete board block — the shared prefix is then reused across
       // agents and wakes (SPEC §10)
+      const thinking = options.thinking ?? "off";
       const { data: response, response: http } = await client.messages
         .create({
           model: options.model,
-          max_tokens: req.maxTokens,
-          temperature: req.temperature,
+          ...(thinkingParams(thinking, req.maxTokens) as {
+            max_tokens: number;
+          }),
+          // sampling parameters are rejected alongside thinking
+          ...(thinking === "off" ? { temperature: req.temperature } : {}),
+          ...(options.effort !== undefined
+            ? { output_config: { effort: options.effort } }
+            : {}),
           ...(options.webTools === true
             ? {
                 tools: [

@@ -15,7 +15,14 @@ const NEXT_LINE = /^next\s+(soon|later|much later)[.!?…]*$/i;
 // never retried). Mid-text PASS stays content.
 // A trailing "NEXT soon|later|much later" line is a check-back preference,
 // stripped and recorded only when activity.check_back is on.
-export function parseWake(raw: string, checkBack: boolean): WakeReply {
+// With output.delimiter set, everything up to the LAST line that starts with
+// the marker is private reasoning (kept in the raw log); only what follows
+// is the post. A reply without the marker is silence.
+export function parseWake(
+  raw: string,
+  checkBack: boolean,
+  delimiter?: string,
+): WakeReply {
   let text = raw.trim();
   let preference: Preference = "later";
   if (checkBack) {
@@ -26,6 +33,19 @@ export function parseWake(raw: string, checkBack: boolean): WakeReply {
       preference = match[1].toLowerCase().replace(" ", "_") as Preference;
       text = lines.slice(0, -1).join("\n").trim();
     }
+  }
+  if (delimiter !== undefined) {
+    const marker = delimiter.toLowerCase();
+    const lines = text.split("\n");
+    let at = -1;
+    for (let i = lines.length - 1; i >= 0; i--)
+      if ((lines[i] ?? "").trim().toLowerCase().startsWith(marker)) {
+        at = i;
+        break;
+      }
+    if (at === -1) return { silent: true, preference };
+    const firstLine = (lines[at] ?? "").trim().slice(delimiter.length);
+    text = [firstLine, ...lines.slice(at + 1)].join("\n").trim();
   }
   if (text === "" || SILENCE.test(text)) return { silent: true, preference };
   const lines = text.split("\n");

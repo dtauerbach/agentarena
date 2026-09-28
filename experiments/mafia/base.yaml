@@ -19,9 +19,14 @@ model:
   provider: claude_code
   name: claude-haiku-4-5
   temperature: 1.0
-  # 60 words needs ~90 tokens; headroom so posts don't get cut mid-sentence
-  # (in the first live game a truncated player was lynched for "trailing off")
-  max_tokens: 220
+  # Room for private reasoning before the POST: marker plus a 60-word post.
+  # (In the first live game a truncated player was lynched for "trailing off".)
+  max_tokens: 700
+  # Extended thinking, per provider rules: "adaptive" for Opus/Sonnet 4.6+,
+  # a token budget (e.g. 2048) for Haiku 4.5. Off by default — the POST:
+  # scratchpad below already gives every agent private reasoning for free.
+  # thinking: adaptive
+  # effort: low
 
 agents:
   count: 7
@@ -46,6 +51,9 @@ board:
 output:
   mode: text
   max_words: 60
+  # the private scratchpad: reasoning before the marker never reaches the
+  # board (it is logged raw); a reply without the marker posts nothing
+  delimiter: "POST:"
 
 # The night room starts empty: the moderator JOINs the living mafia at each
 # nightfall and LEAVEs them at daybreak, so the mafia can only confer at
@@ -103,9 +111,11 @@ render:
   new_since_line: "Posts #{id} onward are new since you last checked."
   nothing_new_line: "Nothing new since you last checked."
   turn_instruction: >-
-    You have just checked this room. Reply with the exact text of your post
-    and nothing else: no reasoning, no preamble, no notes to yourself, at most
-    {max_words} words. Or reply PASS to post nothing.
+    You have just checked this room. First think privately for as long as you
+    like: nobody will see that part. Then write a line containing only POST:
+    and, after it, the exact text of your post, at most {max_words} words.
+    To post nothing, write PASS after POST:. Anything before the POST: line
+    stays private.
   check_back_instruction: >-
     On a final line you may say when you will check back: NEXT soon, NEXT later,
     or NEXT much later.

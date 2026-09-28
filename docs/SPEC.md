@@ -282,6 +282,8 @@ model:
   name: claude-haiku-4-5   # verify current ids in the docs
   temperature: 1.0
   max_tokens: 100               # hard cap on the API call; max_words is the soft cap
+  thinking: off                 # off | adaptive (Opus/Sonnet 4.6+) | <budget tokens> (Haiku 4.5)
+  effort: low                   # optional: low | medium | high | xhigh | max
 agents:
   count: 10
   names: auto                   # or [Ada, Ben, ...]
@@ -298,6 +300,8 @@ board:
 output:
   mode: text                    # text | one_word
   max_words: 40
+  delimiter: "POST:"            # optional private scratchpad: only text after the last
+                                # line starting with the marker is posted; no marker = silence
 tools:
   web: false                    # read-only web search/fetch for every agent; breaks the closed world (see §10)
 common_prompt: ...              # inherited from base
@@ -385,9 +389,13 @@ interface Provider {
   default (each wake is independently openable with `claude --resume
   <session_id>` — an audit trail owned by Claude Code, not arena; set
   ARENA_EPHEMERAL_SESSIONS=1 to disable). Our system prompt
-  replaces Claude Code's entirely; tools, settings files, thinking, and
-  session persistence are disabled; output is capped via
-  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. Two measured impurities, accepted and
+  replaces Claude Code's entirely; tools and settings files are disabled;
+  output is capped via `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. `model.thinking`
+  maps to MAX_THINKING_TOKENS (off → 0, adaptive → CLI default, number →
+  budget) and `model.effort` to `--effort`; the CLI reports thinking tokens
+  in usage but never the reasoning text, so a thinking run through
+  claude_code is private and unlogged (the anthropic provider logs a
+  summarized trace). Two measured impurities, accepted and
   disclosed: Claude Code injects a constant environment block the agents can
   see (cwd, platform, date, model, operator email — identical for every
   agent, wake, and condition, so it cannot vary between conditions), and

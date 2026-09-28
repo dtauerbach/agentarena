@@ -182,9 +182,31 @@ function webSearches(call: Call): number {
   return Math.max(direct, viaSubagents);
 }
 
+// private reasoning, when a provider exposes it: the anthropic provider logs
+// summarized thinking blocks; claude_code reports only the token count
+function thinkingInfo(call: Call): { tokens: number; text: string | null } {
+  const raw = call.response.raw as
+    | {
+        usage?: { output_tokens_details?: { thinking_tokens?: number } };
+        content?: { type: string; thinking?: string }[];
+      }
+    | undefined;
+  const blocks = (raw?.content ?? []).filter((b) => b.type === "thinking");
+  const text =
+    blocks
+      .map((b) => b.thinking ?? "")
+      .join("\n")
+      .trim() || null;
+  return {
+    tokens: raw?.usage?.output_tokens_details?.thinking_tokens ?? 0,
+    text,
+  };
+}
+
 function Receipt({ call }: { call: Call }) {
   const usage = call.response.usage;
   const searches = webSearches(call);
+  const thinking = thinkingInfo(call);
   return (
     <details className="mt-1 rounded border bg-muted/30 px-2 py-1 text-xs">
       <summary className="cursor-pointer select-none text-muted-foreground">
@@ -194,8 +216,17 @@ function Receipt({ call }: { call: Call }) {
           ? ` · ${usage.inputTokens} in / ${usage.outputTokens} out tok`
           : ""}
         {searches > 0 ? ` · ${searches} web searches` : ""}
+        {thinking.tokens > 0 ? ` · ${thinking.tokens} thinking tok` : ""}
       </summary>
       <div className="mt-2 space-y-2">
+        {thinking.text && (
+          <div>
+            <p className="font-semibold">private thinking (summarized)</p>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2">
+              {thinking.text}
+            </pre>
+          </div>
+        )}
         <div>
           <p className="font-semibold">raw model output</p>
           <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-background p-2">

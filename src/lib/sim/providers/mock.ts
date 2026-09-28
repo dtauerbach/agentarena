@@ -74,7 +74,7 @@ export function makeMockProvider(seed: number): Provider {
       }
       if (instruction.includes("ACT")) {
         text = rng.next() < 0.5 ? "ACT" : "PASS";
-      } else if (instruction.includes("POST")) {
+      } else if (instruction.includes("Reply POST")) {
         const draw = rng.next();
         if (draw < 0.6) text = "POST";
         else if (draw < 0.8) text = "CANCEL";
@@ -87,6 +87,10 @@ export function makeMockProvider(seed: number): Provider {
           if (instruction.includes("NEXT") && rng.next() < 0.7)
             text += `\nNEXT ${rng.pick(["soon", "later", "much later"] as const)}`;
         }
+        // a delimiter-style instruction ("...after a line POST:"): mimic a
+        // private thought, then the marker — no extra RNG draw
+        if (instruction.includes("POST:"))
+          text = `(mock thinking)\nPOST:\n${text}`;
       }
       return Promise.resolve({
         text,

@@ -18,6 +18,13 @@ const estimateSchema = z.object({
   model: z.string().optional(),
   perAgent: z.record(z.string(), modelChoiceSchema).optional(),
   moderator: modelChoiceSchema.optional(),
+  thinking: z
+    .union([
+      z.literal("off"),
+      z.literal("adaptive"),
+      z.number().int().min(1024),
+    ])
+    .optional(),
   duration: z.number().positive().optional(),
   seed: z.number().int().nonnegative().optional(),
 });
@@ -33,6 +40,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     model,
     perAgent,
     moderator,
+    thinking,
     duration,
     seed,
   } = parsed.data;
@@ -42,6 +50,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       model,
       perAgent,
       moderator,
+      thinking,
       duration,
       seed,
     });

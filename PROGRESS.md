@@ -80,6 +80,16 @@
   again. One referee reasoning line logged as unparsed (never applied).
   Next: carry per-player choices into batches; consider closing the
   village at night too (villagers still chat and vote after nightfall).
+- **2026-09-28 private scratchpad + thinking knob.** Role leaks ("that's my
+  partner doing useful work") were the model reasoning aloud in its only
+  channel — one call, no thinking, the whole reply is the post. Now
+  `output.delimiter: "POST:"` (mafia base) makes everything before the last
+  POST: line private reasoning kept in the raw log; no marker = silence.
+  `model.thinking` (off | adaptive | budget) + `model.effort`, per-agent and
+  moderator too, wired to both providers (claude_code: MAX_THINKING_TOKENS /
+  --effort, token count logged, text not retrievable; anthropic: adaptive or
+  budget_tokens with summarized trace logged, shown in debug receipts).
+  Launch form has a thinking override.
 
 ## Decisions
 
@@ -253,3 +263,6 @@
 - 2026-09-28: mafia mechanics pass — self-refereed classic, manual variant,
   windowed/latest tallies, night room by phase, names in prompt, confirm only
   for API credits, one-row-per-player launch form.
+- 2026-09-28: POST: delimiter scratchpad (mafia), thinking/effort knobs on
+  model/per_agent/moderator for claude_code and anthropic, launch-form
+  thinking override, receipts show thinking tokens/summaries.
