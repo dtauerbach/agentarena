@@ -55,6 +55,14 @@
   Verify button + report in debug. docs/VERIFICATION.md explains what each
   layer proves and the external cross-checks (claude.ai usage / console).
 - All four M-milestones of the 2026-09-28 plan are accepted.
+- **2026-09-28 mafia polish:** players are Alice…Grace (Bob and Eve mafia);
+  launch form has a per-player model dropdown grouped by billing
+  (Claude subscription / Anthropic API) plus a moderator row, priced per
+  player in the estimate; the run viewer shows village and night as
+  separate panels, announcements as dividers, `VOTE → X` badges from
+  `viewer.moves`, referee tallies and eliminations inline, and a players
+  strip with models and OUT markers. Next: a live opus-mafia-vs-sonnet game
+  from the new form, then carry per-player choices into batches.
 
 ## Decisions
 
@@ -195,6 +203,20 @@
   action, simultaneous-within-a-step visibility, seeded application order.
   No code or deps taken; their feed/action scaffolding conflicts with rule 2.
 
+- Per-player models are a launch-time override (`perAgent`, `moderator` in
+  the launch/estimate APIs → `ConfigOverrides`), not a YAML edit: the
+  designer's "Who runs on what" stays the way to persist a mix, the form is
+  the way to try one; both end up in `config.resolved.json`. Model groups in
+  the picker are inferred from the id (`claude-*` → subscription and API
+  groups; anything else → OpenAI-compatible) so pricing.yaml stays the single
+  model list. The estimate splits agent traffic by room-membership share and
+  prices each share at that agent's model.
+- Viewer move badges come from `viewer.moves` (base.yaml for mafia, so
+  classic gets them too), falling back to `moderator.tallies` for older
+  runs. Rendering for the operator only — agents never see the viewer, so
+  this stays on the right side of hard rule 1. Empty referee tallies are
+  hidden outside debug.
+
 ## Changelog
 
 - 2026-09-10: doc pivot + restructure; Next scaffold (Biome/Tailwind/shadcn,
@@ -203,3 +225,11 @@
 - 2026-09-10: W1 web shell (dashboard, launcher, paced SSE viewer, replay,
   Playwright e2e). W2 anthropic provider + pricing + estimate + budget
   guard + operator panel; live acceptance deferred until a key exists.
+- 2026-09-28: mafia polish — human names, per-player model pickers grouped
+  by billing (+ moderator row, per-player pricing), room panels / announcement
+  dividers / move badges / eliminations in the viewer, `viewer.moves` config,
+  e2e for the new flow.
+- 2026-09-28: repo fix — `.gitignore` had `runs/` unanchored, which also
+  ignored `src/app/runs/` (the run page) and `src/app/api/runs/` (launch,
+  stream, control, operator, calls, verify routes); none had ever been
+  committed. Now `/runs/`; the routes are in this commit.

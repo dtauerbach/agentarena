@@ -51,6 +51,45 @@ describe("cost estimate", () => {
     expect(unknown.overBudget).toBe(false);
   });
 
+  it("prices each player at its own model", () => {
+    const haiku = estimateCost(base, pricing, 5);
+    const oneOpus = estimateCost(
+      {
+        ...base,
+        model: {
+          ...base.model,
+          per_agent: { B: { name: "claude-opus-5" } },
+        },
+      },
+      pricing,
+      5,
+    );
+    const allOpus = estimateCost(
+      { ...base, model: { ...base.model, name: "claude-opus-5" } },
+      pricing,
+      5,
+    );
+    expect(oneOpus.usd).not.toBeNull();
+    if (haiku.usd === null || oneOpus.usd === null || allOpus.usd === null)
+      throw new Error("pricing missing");
+    expect(oneOpus.usd).toBeGreaterThan(haiku.usd);
+    expect(oneOpus.usd).toBeLessThan(allOpus.usd);
+    // one of ten agents on opus: a tenth of the way from all-haiku to all-opus
+    expect(oneOpus.usd).toBeCloseTo(
+      haiku.usd + (allOpus.usd - haiku.usd) / 10,
+      6,
+    );
+    const unknown = estimateCost(
+      {
+        ...base,
+        model: { ...base.model, per_agent: { B: { name: "no-such-model" } } },
+      },
+      pricing,
+      5,
+    );
+    expect(unknown.usd).toBeNull();
+  });
+
   it("baseline A at 7200s on haiku stays well under the default budget", () => {
     const estimate = estimateCost(base, pricing, 5);
     expect(estimate.usd).not.toBeNull();

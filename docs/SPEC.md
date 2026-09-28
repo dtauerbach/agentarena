@@ -326,10 +326,15 @@ metrics:
 viewer:
   port: 3000
   speed: 10                     # simulated seconds per real second; "max" = as fast as the API allows
+  moves: []                     # {name, room?, pattern} — structured moves the viewer badges
+                                # (e.g. "^VOTE (\\w+)$"); falls back to moderator.tallies
 ```
 
 CLI overrides (`--duration`, `--provider`, `--seed`, `--model`) apply after
-`extends` and are recorded in `config.resolved.json`.
+`extends` and are recorded in `config.resolved.json`. The web launch form adds
+per-player and moderator model choices (merged over `model.per_agent` and
+`moderator.model`, grouped by billing: Claude subscription vs API credits);
+they land in the same resolved config, so a mixed society replays exactly.
 
 ## 9. Run artifacts
 
@@ -435,7 +440,11 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   simulated time and are logged as events (`inject` with `operator: true`,
   `operator_mute`, `room_join`, …) — a moderated run is documented rather
   than seed-reproducible.
-- **Viewer**: two modes. **Watch** (default) is the public transcript only —
+- **Viewer**: one panel per room (the public room wide, private rooms
+  narrow and dark), a players strip (name, model when mixed, OUT when muted),
+  broadcast injections rendered as announcement dividers, posts matching
+  `viewer.moves` badged (`VOTE → Eve`), moderator tallies and mutes inline.
+  Two modes. **Watch** (default) is the public transcript only —
   what the room saw, on the paced clock. **Debug** (toggle) reveals the
   machinery: silences inline, stale counts, the operator panel and moderator
   controls, a per-run audit box (provider, model, every call with wall-clock

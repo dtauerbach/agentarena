@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 test("launch a mock run, watch posts land, pause, finish, replay", async ({
@@ -238,4 +238,67 @@ test("discover door: observer report links to a batch", async ({ page }) => {
   await page.click("text=mafia night one");
   await page.waitForURL(/\/batches\//);
   await expect(page.getByText("Observer report")).toBeVisible();
+});
+
+test("mafia: per-player model pickers, two-room game view, move badges", async ({
+  page,
+}) => {
+  await page.goto("/experiments/mafia/classic.yaml");
+  // players appear only for live providers; models are grouped by billing
+  await expect(page.locator("#player-Bob")).toHaveCount(0);
+  await page.selectOption("#launch-provider", "claude_code");
+  await expect(page.locator("#player-Bob")).toBeVisible();
+  await expect(page.locator("#player-Bob optgroup")).toHaveCount(2, {
+    timeout: 10_000,
+  });
+  await expect(page.locator("#player-Bob optgroup").first()).toHaveAttribute(
+    "label",
+    /Claude subscription/,
+  );
+  await page.selectOption("#player-Bob", "anthropic|claude-opus-5");
+  await expect(page.getByText(/across the chosen models/)).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText(/1 overridden/)).toBeVisible();
+
+  // a mock game: the public room and the private night room are separate panels
+  const response = await page.request.post("/api/runs", {
+    data: {
+      experiment: "mafia",
+      file: "classic.yaml",
+      provider: "mock",
+      duration: 3600,
+      speed: "max",
+    },
+  });
+  const { runId } = (await response.json()) as { runId: string };
+  await page.goto(`/runs/${runId}`);
+  await expect(page.locator("section[data-room=village]")).toBeVisible();
+  await expect(page.locator("section[data-room=night]")).toBeVisible();
+  await expect(page.getByText(/only Bob, Eve can read this/)).toBeVisible();
+  // a mock game at max is over before the page opens; the replay needs max too
+  const replayMax = page.locator("button:has-text('max')");
+  if (await replayMax.isEnabled()) await replayMax.click();
+  await expect(page.getByText("done", { exact: true })).toBeVisible({
+    timeout: 45_000,
+  });
+  await expect(
+    page.locator("section[data-room=village]").getByText(/Night 1 falls/),
+  ).toBeVisible();
+  await expect(page.getByText(/scheduled announcement/).first()).toBeVisible();
+
+  // the first live auto-mafia game, when on disk: votes are badged and
+  // eliminations appear inline
+  const live = "runs/20260928-163655-first-auto-mafia-s1";
+  test.skip(!existsSync(live), "live mafia run not on disk");
+  await page.goto(`/runs/${live.split("/")[1]}`);
+  await page.click("button:has-text('max')");
+  await expect(page.getByText("done", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  expect(await page.getByText(/^vote → /).count()).toBeGreaterThan(5);
+  await expect(
+    page.getByText(/E is out — silenced by the moderator/).first(),
+  ).toBeVisible();
+  await expect(page.getByText(/moderator announcement/).first()).toBeVisible();
 });

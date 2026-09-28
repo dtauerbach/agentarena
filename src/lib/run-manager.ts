@@ -20,11 +20,17 @@ import type { ModelRates } from "@/lib/sim/pricing";
 import { loadPricing } from "@/lib/sim/pricing";
 import { makeProviders, requiredProviders } from "@/lib/sim/providers";
 
+export type MoveSpec = { name: string; room?: string; pattern: string };
+
 export type SessionMeta = {
   runId: string;
   name: string;
   label?: string;
   agentModels: Record<string, string>;
+  agentProviders: Record<string, string>;
+  moderatorModel?: string;
+  // viewer.moves, or the moderator's tallies when none are configured
+  moves: MoveSpec[];
   seed: number;
   duration: number;
   provider: string;
@@ -51,6 +57,31 @@ function resolveAgentModels(
       model.per_agent?.[name]?.name ?? model.name,
     ]),
   );
+}
+
+function resolveAgentProviders(
+  agentNames: string[],
+  model: {
+    provider: string;
+    per_agent?: Record<string, { provider?: string; name: string }>;
+  },
+): Record<string, string> {
+  return Object.fromEntries(
+    agentNames.map((name) => [
+      name,
+      model.provider === "mock"
+        ? "mock"
+        : (model.per_agent?.[name]?.provider ?? model.provider),
+    ]),
+  );
+}
+
+function resolveMoves(
+  viewer: { moves?: MoveSpec[] } | undefined,
+  moderator: { tallies?: MoveSpec[] } | undefined,
+): MoveSpec[] {
+  const configured = viewer?.moves ?? [];
+  return configured.length > 0 ? configured : (moderator?.tallies ?? []);
 }
 
 function resolveRooms(
@@ -144,6 +175,11 @@ export function launchRun(
       name: config.name,
       ...(label !== undefined ? { label } : {}),
       agentModels: resolveAgentModels(config.agentNames, config.model),
+      agentProviders: resolveAgentProviders(config.agentNames, config.model),
+      ...(config.moderator && config.model.provider !== "mock"
+        ? { moderatorModel: config.moderator.model }
+        : {}),
+      moves: resolveMoves(config.viewer, config.moderator),
       seed: config.seed,
       duration: config.duration,
       provider: config.model.provider,
@@ -246,12 +282,19 @@ export function readRunMeta(dir: string): SessionMeta {
     private_prompts?: Record<string, string>;
     rooms?: Record<string, { members: "all" | string[] }>;
     run_label?: string;
+    viewer?: { moves?: MoveSpec[] };
+    moderator?: { model: string; tallies?: MoveSpec[] };
   };
   return {
     runId: basename(dir),
     name: resolved.name,
     ...(resolved.run_label !== undefined ? { label: resolved.run_label } : {}),
     agentModels: resolveAgentModels(resolved.agentNames, resolved.model),
+    agentProviders: resolveAgentProviders(resolved.agentNames, resolved.model),
+    ...(resolved.moderator && resolved.model.provider !== "mock"
+      ? { moderatorModel: resolved.moderator.model }
+      : {}),
+    moves: resolveMoves(resolved.viewer, resolved.moderator),
     seed: resolved.seed,
     duration: resolved.duration,
     provider: resolved.model.provider,

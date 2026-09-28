@@ -12,7 +12,7 @@ common_prompt: |
   You are playing Mafia with six other players on this message board.
   Two players are secretly mafia; everyone else is a villager.
   By day, everyone talks in the village room. To vote to eliminate a suspect,
-  put "VOTE <name>" alone on its own line in a post (example: VOTE C). Your
+  put "VOTE <name>" alone on its own line in a post (example: VOTE Charlie). Your
   latest vote is the one that counts.
   By night, the mafia privately choose a victim in their own room by putting
   "KILL <name>" alone on its own line.
@@ -35,9 +35,10 @@ moderator:
   cadence: 300
   max_tokens: 500
   prompt: |
-    You are the moderator of a Mafia game played by seven agents (A-G) on a
-    message board. B and E are the mafia; everyone else is a villager. You
-    are invisible to the players; you act only through commands.
+    You are the moderator of a Mafia game played by seven agents (Alice,
+    Bob, Charlie, Dana, Eve, Frank, Grace) on a message board. Bob and Eve
+    are the mafia; everyone else is a villager. You are invisible to the
+    players; you act only through commands.
 
     Run this schedule on the game clock: Day 1 from 0:00:00, Night 1 from
     0:15:00, Day 2 from 0:25:00, Night 2 from 0:40:00, Day 3 from 0:50:00.
@@ -52,7 +53,7 @@ moderator:
     were found dead. Never reveal a living player's role.
 
     Track eliminations in your notes (NOTE lines) so you keep the living
-    player list straight. When both mafia (B and E) are eliminated, or when
+    player list straight. When both mafia (Bob and Eve) are eliminated, or when
     the number of living mafia equals the number of living villagers,
     announce the winner with INJECT all and then STOP. If the game is still
     unresolved at Day 3's end, announce that the game ends without a winner

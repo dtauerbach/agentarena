@@ -97,3 +97,16 @@ export function requiredProviders(config: Config): string[] {
     providers.add(config.moderator.provider ?? config.model.provider);
   return [...providers];
 }
+
+// the model to ping before a live launch: the first one that will actually
+// go through the claude CLI (a run may be anthropic by default with one
+// subscription-billed player)
+export function firstClaudeCodeModel(config: Config): string | undefined {
+  if (config.model.provider === "mock") return undefined;
+  if (config.model.provider === "claude_code") return config.model.name;
+  for (const override of Object.values(config.model.per_agent))
+    if (override.provider === "claude_code") return override.name;
+  if (config.moderator?.provider === "claude_code")
+    return config.moderator.model;
+  return undefined;
+}

@@ -6,12 +6,18 @@ import type { AgentInfo, Rates } from "@/components/operator-panel";
 import { OperatorPanel } from "@/components/operator-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { agentColor } from "@/lib/agent-color";
+
+type MoveSpec = { name: string; room?: string; pattern: string };
 
 type Meta = {
   runId: string;
   name: string;
   label?: string;
   agentModels: Record<string, string>;
+  agentProviders?: Record<string, string>;
+  moderatorModel?: string;
+  moves?: MoveSpec[];
   seed: number;
   duration: number;
   provider: string;
@@ -35,6 +41,25 @@ type Post = {
 };
 
 type Silence = { t: number; agent: string; room: string; raw: string };
+
+type Via = "scheduled" | "operator" | "moderator";
+type Inject = { t: number; agent: string; text: string; via: Via };
+type Announcement = { t: number; text: string; via: Via; recipients: string[] };
+type MuteEvent = { t: number; agent: string; via: Via; muted: boolean };
+type Tally = {
+  t: number;
+  name: string;
+  room: string;
+  counts: Record<string, number>;
+};
+type RefereeLine = { t: number; kind: "note" | "unparsed"; text: string };
+type Move = { name: string; target: string };
+
+function viaOf(data: Record<string, unknown>): Via {
+  if (data.moderator === true) return "moderator";
+  if (data.operator === true) return "operator";
+  return "scheduled";
+}
 
 type EventData = { t: number; kind: string; agent?: string } & Record<
   string,
@@ -72,13 +97,6 @@ type Call = {
   latency_ms: number;
   wall?: string;
 };
-
-function agentColor(name: string): string {
-  let hash = 0;
-  for (const ch of name) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  // golden-angle spread so adjacent names (A, B, C…) get distinct hues
-  return `hsl(${Math.round((hash * 137.508) % 360)} 65% 45%)`;
-}
 
 function renderClock(t: number): string {
   const s = Math.max(0, Math.floor(t));
@@ -197,11 +215,366 @@ function Receipt({ call }: { call: Call }) {
   );
 }
 
+type FeedItem =
+  | { type: "post"; t: number; order: number; post: Post }
+  | { type: "silence"; t: number; order: number; silence: Silence }
+  | { type: "announce"; t: number; order: number; announcement: Announcement }
+  | { type: "mute"; t: number; order: number; mute: MuteEvent }
+  | { type: "tally"; t: number; order: number; tally: Tally }
+  | { type: "referee"; t: number; order: number; line: RefereeLine };
+
+function modelLabel(meta: Meta, agent: string): string | null {
+  if (meta.provider === "mock") return null;
+  const model = meta.agentModels[agent];
+  if (model === undefined) return null;
+  const provider = meta.agentProviders?.[agent];
+  const providerTag =
+    provider !== undefined && provider !== meta.provider
+      ? ` · ${provider}`
+      : "";
+  return `${model}${providerTag}`;
+}
+
+// who is in the game, on what, and who is out — always visible, so a mixed
+// society (two opuses among sonnets) reads at a glance
+function PlayersStrip({
+  meta,
+  muted,
+}: {
+  meta: Meta;
+  muted: Record<string, boolean>;
+}) {
+  const labels = new Set(
+    meta.agentNames.map((name) => modelLabel(meta, name) ?? ""),
+  );
+  const mixed = labels.size > 1;
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs">
+      {meta.agentNames.map((name) => {
+        const out = muted[name] === true;
+        const label = modelLabel(meta, name);
+        return (
+          <span
+            key={name}
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 ${out ? "opacity-50" : ""}`}
+            title={label ?? undefined}
+          >
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ backgroundColor: agentColor(name) }}
+            />
+            <span className={`font-medium ${out ? "line-through" : ""}`}>
+              {name}
+            </span>
+            {out && (
+              <span className="font-semibold uppercase text-destructive">
+                out
+              </span>
+            )}
+            {mixed && label && (
+              <span className="font-mono text-muted-foreground">{label}</span>
+            )}
+          </span>
+        );
+      })}
+      {!mixed && meta.provider !== "mock" && (
+        <span className="font-mono text-muted-foreground">
+          all on {meta.model}
+        </span>
+      )}
+      {meta.moderatorModel && (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/50 px-2 py-0.5">
+          <span className="font-medium">moderator</span>
+          <span className="font-mono text-muted-foreground">
+            {meta.moderatorModel}
+          </span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+type Tone = "public" | "private";
+
+const toneClass: Record<Tone, { panel: string; card: string; dim: string }> = {
+  public: {
+    panel: "border bg-background",
+    card: "border bg-background",
+    dim: "text-muted-foreground",
+  },
+  private: {
+    panel: "border border-slate-700 bg-slate-950 text-slate-100",
+    card: "border border-slate-800 bg-slate-900",
+    dim: "text-slate-400",
+  },
+};
+
+function RoomPanel({
+  room,
+  members,
+  privateRoom,
+  primary,
+  multiRoom,
+  items,
+  debug,
+  meta,
+  movesIn,
+  callFor,
+  columnRef,
+}: {
+  room: string;
+  members: string[];
+  privateRoom: boolean;
+  primary: boolean;
+  multiRoom: boolean;
+  items: FeedItem[];
+  debug: boolean;
+  meta: Meta | null;
+  movesIn: (post: Post) => Move[];
+  callFor: (agent: string, t: number, kind: string) => Call | undefined;
+  columnRef: (el: HTMLDivElement | null) => void;
+}) {
+  const tone: Tone = privateRoom ? "private" : "public";
+  const cls = toneClass[tone];
+  return (
+    <section
+      className={`min-w-0 rounded-lg ${cls.panel} ${multiRoom ? (primary ? "lg:flex-[2]" : "lg:flex-1") : "flex-1"}`}
+      data-room={room}
+    >
+      {multiRoom && (
+        <header
+          className={`flex flex-wrap items-baseline gap-2 border-b px-3 py-2 ${privateRoom ? "border-slate-800" : ""}`}
+        >
+          <h2 className="text-sm font-semibold">{room}</h2>
+          {privateRoom ? (
+            <span className={`text-xs ${cls.dim}`}>
+              private · only {members.join(", ") || "nobody"} can read this
+            </span>
+          ) : (
+            <span className={`text-xs ${cls.dim}`}>
+              everyone · {members.length} members
+            </span>
+          )}
+        </header>
+      )}
+      <div
+        ref={columnRef}
+        className={`space-y-2 ${multiRoom ? "max-h-[75vh] overflow-y-auto p-3" : ""}`}
+      >
+        {items.map((item, i) => {
+          switch (item.type) {
+            case "post":
+              return (
+                <PostCard
+                  key={`p${item.post.id}`}
+                  post={item.post}
+                  tone={tone}
+                  debug={debug}
+                  meta={meta}
+                  moves={movesIn(item.post)}
+                  call={
+                    debug
+                      ? callFor(item.post.agent, item.post.t_wake, "wake")
+                      : undefined
+                  }
+                />
+              );
+            case "silence": {
+              const call = callFor(item.silence.agent, item.t, "wake");
+              return (
+                <div
+                  key={`s${item.silence.agent}-${item.t}-${i}`}
+                  className={`flex items-start gap-3 rounded-lg border border-dashed px-3 py-1.5 opacity-70 ${privateRoom ? "border-slate-700" : ""}`}
+                >
+                  <span
+                    className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full opacity-50"
+                    style={{ backgroundColor: agentColor(item.silence.agent) }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className={`flex items-baseline gap-2 text-xs ${cls.dim}`}
+                    >
+                      <span>{item.silence.agent} stayed silent</span>
+                      <span className="font-mono tabular-nums">
+                        {renderClock(item.t)}
+                      </span>
+                    </div>
+                    {item.silence.raw.trim() !== "" && (
+                      <p className={`whitespace-pre-wrap text-xs ${cls.dim}`}>
+                        {item.silence.raw}
+                      </p>
+                    )}
+                    {call && <Receipt call={call} />}
+                  </div>
+                </div>
+              );
+            }
+            case "announce": {
+              const a = item.announcement;
+              const everyone =
+                meta === null || a.recipients.length >= meta.agentNames.length;
+              return (
+                <div
+                  key={`a${a.t}-${a.via}-${i}`}
+                  className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm"
+                >
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    <span className="font-mono tabular-nums">
+                      {renderClock(a.t)}
+                    </span>{" "}
+                    · {a.via === "scheduled" ? "scheduled" : a.via} announcement
+                    {everyone ? "" : ` to ${a.recipients.join(", ")}`}
+                  </p>
+                  <p className="whitespace-pre-wrap">{a.text}</p>
+                </div>
+              );
+            }
+            case "mute": {
+              const m = item.mute;
+              return (
+                <div
+                  key={`m${m.agent}-${m.t}-${i}`}
+                  className={`flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm ${m.muted ? "border-destructive/40 bg-destructive/10" : "border-green-600/40 bg-green-600/10"}`}
+                >
+                  <span className="font-mono text-xs tabular-nums">
+                    {renderClock(m.t)}
+                  </span>
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ backgroundColor: agentColor(m.agent) }}
+                  />
+                  <span>
+                    <span className="font-medium">{m.agent}</span>
+                    {m.muted
+                      ? " is out — silenced by the "
+                      : " is back — unmuted by the "}
+                    {m.via}
+                  </span>
+                </div>
+              );
+            }
+            case "tally": {
+              const entries = Object.entries(item.tally.counts).sort(
+                (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+              );
+              return (
+                <p
+                  key={`t${item.tally.name}-${item.t}-${i}`}
+                  className={`px-1 text-xs ${cls.dim}`}
+                >
+                  <span className="font-mono tabular-nums">
+                    {renderClock(item.t)}
+                  </span>{" "}
+                  · referee counted {item.tally.name}s:{" "}
+                  {entries.length === 0
+                    ? "none"
+                    : entries.map(([who, n]) => `${who} ${n}`).join(", ")}
+                </p>
+              );
+            }
+            case "referee":
+              return (
+                <p
+                  key={`r${item.t}-${i}`}
+                  className={`px-1 font-mono text-xs ${item.line.kind === "unparsed" ? "text-destructive" : cls.dim}`}
+                >
+                  {renderClock(item.t)} · moderator {item.line.kind}:{" "}
+                  {item.line.text}
+                </p>
+              );
+            default:
+              return null;
+          }
+        })}
+        {items.length === 0 && (
+          <p className={`py-8 text-center text-sm ${cls.dim}`}>
+            Nothing has been posted yet.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PostCard({
+  post,
+  tone,
+  debug,
+  meta,
+  moves,
+  call,
+}: {
+  post: Post;
+  tone: Tone;
+  debug: boolean;
+  meta: Meta | null;
+  moves: Move[];
+  call: Call | undefined;
+}) {
+  const cls = toneClass[tone];
+  const label = meta ? modelLabel(meta, post.agent) : null;
+  const mixed =
+    meta !== null &&
+    new Set(meta.agentNames.map((n) => modelLabel(meta, n) ?? "")).size > 1;
+  return (
+    <div
+      className={`flex items-start gap-3 rounded-lg px-3 py-2 ${cls.card} ${moves.length > 0 ? "ring-1 ring-amber-500/50" : ""}`}
+    >
+      <span
+        className="mt-1 inline-block h-3 w-3 shrink-0 rounded-full"
+        style={{ backgroundColor: agentColor(post.agent) }}
+      />
+      <div className="min-w-0 flex-1">
+        <div
+          className={`flex flex-wrap items-baseline gap-2 text-xs ${cls.dim}`}
+        >
+          <span
+            className="font-medium"
+            style={{ color: agentColor(post.agent) }}
+          >
+            {post.agent}
+          </span>
+          <span className="font-mono tabular-nums">
+            {renderClock(post.t_land)}
+          </span>
+          {moves.map((move) => (
+            <span
+              key={`${move.name}-${move.target}`}
+              className="rounded bg-amber-500/20 px-1.5 font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300"
+            >
+              {move.name} → {move.target}
+            </span>
+          ))}
+          {debug && (
+            <span className="font-mono tabular-nums">
+              #{post.seq ?? post.id}
+            </span>
+          )}
+          {debug && mixed && label && (
+            <span className="font-mono">{label}</span>
+          )}
+          {debug && post.stale_count > 0 && (
+            <span title="posts landed while composing">
+              stale +{post.stale_count}
+            </span>
+          )}
+        </div>
+        <p className="whitespace-pre-wrap text-sm">{post.message}</p>
+        {call && <Receipt call={call} />}
+      </div>
+    </div>
+  );
+}
+
 export function RunViewer({ runId }: { runId: string }) {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [mode, setMode] = useState<"live" | "replay">("replay");
   const [posts, setPosts] = useState<Post[]>([]);
   const [silences, setSilences] = useState<Silence[]>([]);
+  const [injects, setInjects] = useState<Inject[]>([]);
+  const [mutes, setMutes] = useState<MuteEvent[]>([]);
+  const [tallies, setTallies] = useState<Tally[]>([]);
+  const [refereeLines, setRefereeLines] = useState<RefereeLine[]>([]);
   const [agentInfo, setAgentInfo] = useState<Record<string, AgentInfo>>({});
   const [memberships, setMemberships] = useState<Record<string, string[]>>({});
   const [counts, setCounts] = useState({ wakes: 0, silences: 0 });
@@ -300,6 +673,54 @@ export function RunViewer({ runId }: { runId: string }) {
           const { t, agent, room, raw } = msg.data as unknown as Silence;
           setSilences((prev) => [...prev, { t, agent, room, raw }]);
         }
+        if (msg.data.kind === "inject" && typeof msg.data.agent === "string")
+          setInjects((prev) => [
+            ...prev,
+            {
+              t: msg.data.t,
+              agent: msg.data.agent as string,
+              text: String(msg.data.text ?? ""),
+              via: viaOf(msg.data),
+            },
+          ]);
+        if (
+          (msg.data.kind === "operator_mute" ||
+            msg.data.kind === "operator_unmute") &&
+          typeof msg.data.agent === "string"
+        )
+          setMutes((prev) => [
+            ...prev,
+            {
+              t: msg.data.t,
+              agent: msg.data.agent as string,
+              via: viaOf(msg.data),
+              muted: msg.data.kind === "operator_mute",
+            },
+          ]);
+        if (msg.data.kind === "tally")
+          setTallies((prev) => [
+            ...prev,
+            {
+              t: msg.data.t,
+              name: String(msg.data.name ?? ""),
+              room: String(msg.data.room ?? ""),
+              counts: (msg.data.counts ?? {}) as Record<string, number>,
+            },
+          ]);
+        if (msg.data.kind === "moderator_note")
+          setRefereeLines((prev) => [
+            ...prev,
+            { t: msg.data.t, kind: "note", text: String(msg.data.text ?? "") },
+          ]);
+        if (msg.data.kind === "moderator_unparsed")
+          setRefereeLines((prev) => [
+            ...prev,
+            {
+              t: msg.data.t,
+              kind: "unparsed",
+              text: `${String(msg.data.line ?? "")} (${String(msg.data.reason ?? "")})`,
+            },
+          ]);
         setAgentInfo((prev) => applyEvent(prev, msg.data));
         if (msg.data.kind === "room_join" || msg.data.kind === "room_leave") {
           const { agent, room } = msg.data as unknown as {
@@ -344,11 +765,17 @@ export function RunViewer({ runId }: { runId: string }) {
     return () => clearInterval(interval);
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run on each landed post to autoscroll
+  const columnRefs = useRef(new Map<string, HTMLDivElement>());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run on each landed post or announcement to autoscroll
   useEffect(() => {
-    if (!holdRef.current)
+    if (holdRef.current) return;
+    if (columnRefs.current.size === 0) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [posts]);
+      return;
+    }
+    for (const el of columnRefs.current.values())
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [posts, injects, mutes]);
 
   const control = async (body: Record<string, unknown>) => {
     const response = await fetch(`/api/runs/${runId}/control`, {
@@ -370,26 +797,113 @@ export function RunViewer({ runId }: { runId: string }) {
   const callFor = (agent: string, t: number, kind: string): Call | undefined =>
     calls?.find((c) => c.agent === agent && c.t === t && c.kind === kind);
 
-  const multiRoom = Object.keys(memberships).length > 1;
-  const feed = useMemo(() => {
-    const items: (
-      | { type: "post"; t: number; post: Post }
-      | { type: "silence"; t: number; silence: Silence }
-    )[] = posts.map((post) => ({
-      type: "post" as const,
-      t: post.t_land,
-      post,
-    }));
+  const roomNames = Object.keys(memberships);
+  const multiRoom = roomNames.length > 1;
+  const allCount = meta?.agentNames.length ?? 0;
+  // the public room: everyone is a member; private rooms are the rest
+  const primaryRoom =
+    roomNames.find((r) => (meta?.rooms[r]?.length ?? 0) >= allCount) ??
+    roomNames[0] ??
+    "main";
+  const isPrivate = (room: string) =>
+    (meta?.rooms[room]?.length ?? allCount) < allCount;
+
+  const moveMatchers = useMemo(
+    () =>
+      (meta?.moves ?? []).flatMap((move) => {
+        try {
+          return [{ ...move, re: new RegExp(move.pattern, "im") }];
+        } catch {
+          return [];
+        }
+      }),
+    [meta],
+  );
+  const movesIn = (post: Post): Move[] =>
+    moveMatchers.flatMap((m) => {
+      if (m.room !== undefined && m.room !== post.room) return [];
+      const match = m.re.exec(post.message);
+      const target = match?.[1];
+      return target === undefined ? [] : [{ name: m.name, target }];
+    });
+
+  // one inject event per recipient; the same text at the same instant is one
+  // announcement to the room
+  const announcements = useMemo(() => {
+    const byKey = new Map<string, Announcement>();
+    for (const inject of injects) {
+      const key = `${inject.t}|${inject.via}|${inject.text}`;
+      const entry = byKey.get(key);
+      if (entry) entry.recipients.push(inject.agent);
+      else
+        byKey.set(key, {
+          t: inject.t,
+          text: inject.text,
+          via: inject.via,
+          recipients: [inject.agent],
+        });
+    }
+    return [...byKey.values()];
+  }, [injects]);
+
+  const roomFeeds = useMemo(() => {
+    const feeds: Record<string, FeedItem[]> = {};
+    for (const room of roomNames) feeds[room] = [];
+    const push = (room: string, item: FeedItem) => {
+      const list = feeds[room] ?? [];
+      feeds[room] = list;
+      list.push(item);
+    };
+    for (const post of posts)
+      push(post.room, { type: "post", t: post.t_land, order: 3, post });
     if (debug)
-      items.push(
-        ...silences.map((silence) => ({
-          type: "silence" as const,
+      for (const silence of silences)
+        push(silence.room, {
+          type: "silence",
           t: silence.t,
+          order: 4,
           silence,
-        })),
-      );
-    return items.sort((a, b) => a.t - b.t);
-  }, [posts, silences, debug]);
+        });
+    for (const a of announcements) {
+      const broadcast = a.recipients.length > 1;
+      if (broadcast)
+        for (const room of roomNames)
+          push(room, { type: "announce", t: a.t, order: 0, announcement: a });
+      else if (debug)
+        push(primaryRoom, {
+          type: "announce",
+          t: a.t,
+          order: 0,
+          announcement: a,
+        });
+    }
+    for (const mute of mutes)
+      for (const room of roomNames)
+        if (meta?.rooms[room]?.includes(mute.agent))
+          push(room, { type: "mute", t: mute.t, order: 1, mute });
+    // an empty count every referee wake is noise outside debug
+    for (const tally of tallies)
+      if (debug || Object.keys(tally.counts).length > 0)
+        push(tally.room, { type: "tally", t: tally.t, order: 2, tally });
+    if (debug)
+      for (const line of refereeLines)
+        push(primaryRoom, { type: "referee", t: line.t, order: 2, line });
+    for (const items of Object.values(feeds))
+      items.sort((a, b) => a.t - b.t || a.order - b.order);
+    return feeds;
+  }, [
+    posts,
+    silences,
+    announcements,
+    mutes,
+    tallies,
+    refereeLines,
+    debug,
+    roomNames,
+    primaryRoom,
+    meta,
+  ]);
+  const feedLength = posts.length;
 
   const totalTokens = calls?.reduce(
     (acc, c) => ({
@@ -646,110 +1160,50 @@ export function RunViewer({ runId }: { runId: string }) {
         />
       )}
 
-      <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="min-w-0 flex-1 space-y-2">
-          {feed.map((item, i) =>
-            item.type === "post" ? (
-              <div
-                key={`p${item.post.id}`}
-                className="flex items-start gap-3 rounded-lg border px-3 py-2"
-              >
-                <span
-                  className="mt-1 inline-block h-3 w-3 shrink-0 rounded-full"
-                  style={{ backgroundColor: agentColor(item.post.agent) }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                    <span
-                      className="font-medium"
-                      style={{ color: agentColor(item.post.agent) }}
-                    >
-                      {item.post.agent}
-                    </span>
-                    <span className="font-mono tabular-nums">
-                      {renderClock(item.post.t_land)}
-                    </span>
-                    {multiRoom && (
-                      <span className="rounded bg-muted px-1 font-mono">
-                        {item.post.room}
-                      </span>
-                    )}
-                    {debug && (
-                      <span className="font-mono tabular-nums">
-                        #{item.post.seq ?? item.post.id}
-                      </span>
-                    )}
-                    {debug &&
-                      meta &&
-                      new Set(Object.values(meta.agentModels ?? {})).size >
-                        1 && (
-                        <span className="font-mono">
-                          {meta.agentModels?.[item.post.agent]}
-                        </span>
-                      )}
-                    {debug && item.post.stale_count > 0 && (
-                      <span title="posts landed while composing">
-                        stale +{item.post.stale_count}
-                      </span>
-                    )}
-                  </div>
-                  <p className="whitespace-pre-wrap text-sm">
-                    {item.post.message}
-                  </p>
-                  {debug &&
-                    (() => {
-                      const call = callFor(
-                        item.post.agent,
-                        item.post.t_wake,
-                        "wake",
-                      );
-                      return call ? <Receipt call={call} /> : null;
-                    })()}
-                </div>
-              </div>
-            ) : (
-              <div
-                key={`s${item.silence.agent}-${item.t}-${i}`}
-                className="flex items-start gap-3 rounded-lg border border-dashed px-3 py-1.5 opacity-70"
-              >
-                <span
-                  className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full opacity-50"
-                  style={{ backgroundColor: agentColor(item.silence.agent) }}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2 text-xs text-muted-foreground">
-                    <span>{item.silence.agent} stayed silent</span>
-                    <span className="font-mono tabular-nums">
-                      {renderClock(item.t)}
-                    </span>
-                    {multiRoom && (
-                      <span className="rounded bg-muted px-1 font-mono">
-                        {item.silence.room}
-                      </span>
-                    )}
-                  </div>
-                  {item.silence.raw.trim() !== "" && (
-                    <p className="whitespace-pre-wrap text-xs text-muted-foreground">
-                      {item.silence.raw}
-                    </p>
-                  )}
-                  {(() => {
-                    const call = callFor(item.silence.agent, item.t, "wake");
-                    return call ? <Receipt call={call} /> : null;
-                  })()}
-                </div>
-              </div>
-            ),
+      {meta && (
+        <PlayersStrip
+          meta={meta}
+          muted={Object.fromEntries(
+            meta.agentNames.map((name) => [
+              name,
+              agentInfo[name]?.muted === true,
+            ]),
           )}
-          {feed.length === 0 && (
+        />
+      )}
+
+      <div className="flex flex-col gap-4 lg:flex-row">
+        <div
+          className={`flex min-w-0 flex-1 flex-col gap-4 ${multiRoom ? "lg:flex-row lg:items-start" : ""}`}
+        >
+          {roomNames.map((room) => (
+            <RoomPanel
+              key={room}
+              room={room}
+              members={memberships[room] ?? []}
+              privateRoom={isPrivate(room)}
+              primary={room === primaryRoom}
+              multiRoom={multiRoom}
+              items={roomFeeds[room] ?? []}
+              debug={debug}
+              meta={meta}
+              movesIn={movesIn}
+              callFor={callFor}
+              columnRef={(el) => {
+                if (el && multiRoom) columnRefs.current.set(room, el);
+                else columnRefs.current.delete(room);
+              }}
+            />
+          ))}
+          {roomNames.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
               Nothing has been posted yet.
             </p>
           )}
-          <div ref={bottomRef} />
+          {!multiRoom && <div ref={bottomRef} />}
           {debug && (
             <p className="text-xs text-muted-foreground">
-              {counts.wakes} wakes · {counts.silences} silences · {posts.length}{" "}
+              {counts.wakes} wakes · {counts.silences} silences · {feedLength}{" "}
               posts
               {statusError && (
                 <span className="text-destructive"> · {statusError}</span>

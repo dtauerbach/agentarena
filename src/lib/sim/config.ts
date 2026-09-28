@@ -193,17 +193,36 @@ export const configSchema = z.strictObject({
   viewer: z
     .strictObject({
       speed: z.union([z.number().positive(), z.literal("max")]).default(10),
+      // structured moves the run viewer badges and tallies for the operator
+      // (e.g. "VOTE X"); agents never see the viewer, so this is rendering
+      moves: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1),
+            room: z.string().optional(),
+            pattern: z.string().min(1),
+          }),
+        )
+        .default([]),
     })
     .prefault({}),
 });
 
 export type Config = z.infer<typeof configSchema> & { agentNames: string[] };
 
+export type ModelChoice = {
+  provider?: "anthropic" | "claude_code" | "openai";
+  name: string;
+};
+
 export type ConfigOverrides = {
   duration?: number;
   seed?: number;
   provider?: "anthropic" | "claude_code" | "openai" | "mock";
   model?: string;
+  // launch-time per-player models, merged over model.per_agent
+  perAgent?: Record<string, ModelChoice>;
+  moderator?: ModelChoice;
 };
 
 type RawDoc = Record<string, unknown>;
@@ -265,6 +284,28 @@ export function loadConfig(
     raw.model = { ...model, provider: overrides.provider };
   if (overrides.model !== undefined)
     raw.model = { ...(raw.model as RawDoc), name: overrides.model };
+  if (overrides.perAgent !== undefined) {
+    const current = (raw.model as RawDoc | undefined) ?? {};
+    raw.model = {
+      ...current,
+      per_agent: {
+        ...((current.per_agent as RawDoc | undefined) ?? {}),
+        ...overrides.perAgent,
+      },
+    };
+  }
+  if (overrides.moderator !== undefined) {
+    if (raw.moderator === undefined || typeof raw.moderator !== "object")
+      throw new Error(
+        `config error at "moderator": model override given but this config has no moderator (${filePath})`,
+      );
+    const { provider, name } = overrides.moderator;
+    raw.moderator = {
+      ...(raw.moderator as RawDoc),
+      model: name,
+      ...(provider !== undefined ? { provider } : {}),
+    };
+  }
 
   const parsed = configSchema.safeParse(raw);
   if (!parsed.success) {
@@ -312,6 +353,17 @@ export function loadConfig(
       throw new Error(
         "moderator: tally_header and tally_line are required when tallies are set",
       );
+  }
+  for (const move of config.viewer.moves) {
+    if (move.room !== undefined && !(move.room in config.rooms))
+      throw new Error(`viewer.moves: unknown room "${move.room}"`);
+    try {
+      new RegExp(move.pattern, "im");
+    } catch {
+      throw new Error(
+        `viewer.moves.${move.name}: invalid pattern "${move.pattern}"`,
+      );
+    }
   }
   for (const inj of config.injections) {
     const targets = Array.isArray(inj.agent) ? inj.agent : [inj.agent];

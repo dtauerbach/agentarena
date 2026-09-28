@@ -5,6 +5,7 @@ import { Designer } from "@/components/designer";
 import { LaunchForm } from "@/components/launch-form";
 import { YamlEditor } from "@/components/yaml-editor";
 import { loadExperimentConfig, readExperimentYaml } from "@/lib/experiments";
+import type { ModelChoice } from "@/lib/sim/config";
 import { loadPricing } from "@/lib/sim/pricing";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,16 @@ export default async function ExperimentPage({
   let yamlText: string;
   let error: string | undefined;
   let summary:
-    | { name: string; duration: number; agents: number; seed: number }
+    | {
+        name: string;
+        duration: number;
+        agents: number;
+        seed: number;
+        agentNames: string[];
+        privatePrompts: Record<string, string>;
+        modelPerAgent: Record<string, ModelChoice>;
+        moderator?: ModelChoice;
+      }
     | undefined;
   let initial: DesignerInitial | undefined;
   try {
@@ -31,6 +41,19 @@ export default async function ExperimentPage({
       duration: config.duration,
       agents: config.agents.count,
       seed: config.seed,
+      agentNames: config.agentNames,
+      privatePrompts: config.private_prompts,
+      modelPerAgent: config.model.per_agent,
+      ...(config.moderator
+        ? {
+            moderator: {
+              name: config.moderator.model,
+              ...(config.moderator.provider
+                ? { provider: config.moderator.provider }
+                : {}),
+            },
+          }
+        : {}),
     };
     initial = {
       commonPrompt: config.common_prompt,
@@ -78,6 +101,10 @@ export default async function ExperimentPage({
             file={file}
             defaultDuration={summary.duration}
             defaultSeed={summary.seed}
+            agentNames={summary.agentNames}
+            privatePrompts={summary.privatePrompts}
+            modelPerAgent={summary.modelPerAgent}
+            moderator={summary.moderator}
           />
           <BatchForm experiment={experiment} file={file} />
         </>

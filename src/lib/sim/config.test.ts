@@ -53,6 +53,39 @@ describe("config loading", () => {
     expect(config.model.provider).toBe("mock");
   });
 
+  it("launch-time per-player and moderator model choices merge over the YAML", () => {
+    const config = loadConfig("experiments/mafia/auto.yaml", {
+      provider: "anthropic",
+      perAgent: {
+        Bob: { provider: "claude_code", name: "claude-opus-5" },
+        Eve: { name: "claude-opus-5" },
+      },
+      moderator: { name: "claude-sonnet-5" },
+    });
+    expect(config.model.per_agent.Bob).toEqual({
+      provider: "claude_code",
+      name: "claude-opus-5",
+    });
+    expect(config.model.per_agent.Eve).toEqual({ name: "claude-opus-5" });
+    expect(config.model.per_agent.Alice).toBeUndefined();
+    expect(config.moderator?.model).toBe("claude-sonnet-5");
+    expect(() =>
+      loadConfig(BASE, { moderator: { name: "claude-sonnet-5" } }),
+    ).toThrow(/no moderator/);
+  });
+
+  it("viewer.moves must name a known room and a valid pattern", () => {
+    const mafia = loadConfig("experiments/mafia/classic.yaml");
+    expect(mafia.viewer.moves.map((m) => m.name)).toEqual(["vote", "kill"]);
+    const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
+    const bad = join(dir, "moves.yaml");
+    writeFileSync(
+      bad,
+      `extends: ${join(process.cwd(), BASE)}\nname: moves\nviewer:\n  moves:\n    - name: vote\n      room: nowhere\n      pattern: "^VOTE (\\\\w+)$"\n`,
+    );
+    expect(() => loadConfig(bad)).toThrow(/viewer.moves: unknown room/);
+  });
+
   it("errors name the offending field", () => {
     const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
     const bad = join(dir, "bad.yaml");

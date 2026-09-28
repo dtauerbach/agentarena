@@ -1,17 +1,24 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { agentColor } from "@/lib/agent-color";
 
 type ProviderChoice = "mock" | "claude_code" | "anthropic";
+type LiveProvider = "claude_code" | "anthropic" | "openai";
+type ModelChoice = { provider?: LiveProvider; name: string };
 
 type Props = {
   experiment: string;
   file: string;
   defaultDuration: number;
   defaultSeed: number;
+  agentNames: string[];
+  privatePrompts: Record<string, string>;
+  modelPerAgent: Record<string, ModelChoice>;
+  moderator?: ModelChoice;
 };
 
 type Estimate = {
@@ -23,11 +30,48 @@ type Estimate = {
   overBudget: boolean;
 };
 
+type Credentials = Record<LiveProvider, boolean>;
+
+// Billing is the axis that matters when picking a player's model: the same
+// Claude model is either subscription usage (claude_code) or API credits
+// (anthropic). Non-Claude ids in pricing.yaml go to the OpenAI-compatible
+// group; add a row there and it appears here.
+function modelGroups(models: string[]) {
+  const claude = models.filter((m) => m.startsWith("claude-"));
+  const other = models.filter((m) => !m.startsWith("claude-"));
+  const groups: { provider: LiveProvider; label: string; models: string[] }[] =
+    [
+      { provider: "claude_code", label: "Claude subscription", models: claude },
+      { provider: "anthropic", label: "Anthropic API credits", models: claude },
+      { provider: "openai", label: "OpenAI-compatible", models: other },
+    ];
+  return groups.filter((g) => g.models.length > 0);
+}
+
+function encode(choice: ModelChoice, fallback: string): string {
+  return `${choice.provider ?? fallback}|${choice.name}`;
+}
+
+function decode(value: string): ModelChoice | null {
+  if (value === "") return null;
+  const [provider, name] = value.split("|");
+  if (!provider || !name) return null;
+  return { provider: provider as LiveProvider, name };
+}
+
+function sameChoice(a: ModelChoice | null, b: ModelChoice | null): boolean {
+  return a?.provider === b?.provider && a?.name === b?.name;
+}
+
 export function LaunchForm({
   experiment,
   file,
   defaultDuration,
   defaultSeed,
+  agentNames,
+  privatePrompts,
+  modelPerAgent,
+  moderator,
 }: Props) {
   const router = useRouter();
   const [provider, setProvider] = useState<ProviderChoice>("mock");
@@ -41,9 +85,35 @@ export function LaunchForm({
   const [error, setError] = useState<string | null>(null);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [hasKey, setHasKey] = useState(true);
+  const [credentials, setCredentials] = useState<Credentials | null>(null);
   const [model, setModel] = useState("");
   const [confirm, setConfirm] = useState(false);
   const [overrideBudget, setOverrideBudget] = useState(false);
+  // per-player choices start from the YAML's model.per_agent; null = run default
+  const [players, setPlayers] = useState<Record<string, ModelChoice | null>>(
+    () =>
+      Object.fromEntries(
+        agentNames.map((name) => [name, modelPerAgent[name] ?? null]),
+      ),
+  );
+  const [moderatorChoice, setModeratorChoice] = useState<ModelChoice | null>(
+    moderator ?? null,
+  );
+
+  const live = provider !== "mock";
+  const runProvider = live ? provider : "claude_code";
+  const perAgent = useMemo(() => {
+    const out: Record<string, ModelChoice> = {};
+    for (const [name, choice] of Object.entries(players))
+      if (choice !== null) out[name] = choice;
+    return out;
+  }, [players]);
+  const moderatorOverride =
+    moderator !== undefined &&
+    moderatorChoice !== null &&
+    !sameChoice(moderatorChoice, moderator)
+      ? moderatorChoice
+      : undefined;
 
   const fetchEstimate = useCallback(async () => {
     const response = await fetch("/api/estimate", {
@@ -54,6 +124,8 @@ export function LaunchForm({
         file,
         provider,
         model: modelChoice === "" ? undefined : modelChoice,
+        perAgent,
+        moderator: moderatorOverride,
         duration: Number(duration) || undefined,
         seed: Number(seed) || undefined,
       }),
@@ -64,12 +136,23 @@ export function LaunchForm({
       model: string;
       models?: string[];
       hasKey: boolean;
+      credentials?: Credentials;
     };
     setEstimate(body.estimate);
     setModel(body.model);
     setModels(body.models ?? []);
     setHasKey(body.hasKey);
-  }, [experiment, file, provider, modelChoice, duration, seed]);
+    setCredentials(body.credentials ?? null);
+  }, [
+    experiment,
+    file,
+    provider,
+    modelChoice,
+    perAgent,
+    moderatorOverride,
+    duration,
+    seed,
+  ]);
 
   useEffect(() => {
     if (provider !== "mock") void fetchEstimate();
@@ -87,6 +170,8 @@ export function LaunchForm({
           file,
           provider,
           model: modelChoice === "" ? undefined : modelChoice,
+          perAgent: live ? perAgent : undefined,
+          moderator: live ? moderatorOverride : undefined,
           label: label.trim() === "" ? undefined : label.trim(),
           duration: Number(duration),
           seed: Number(seed),
@@ -108,14 +193,63 @@ export function LaunchForm({
     }
   };
 
-  const live = provider !== "mock";
+  const groups = modelGroups(models);
+  const chosenProviders = new Set<string>([
+    runProvider,
+    ...Object.values(perAgent).map((c) => c.provider ?? runProvider),
+    ...(moderatorOverride ? [moderatorOverride.provider ?? runProvider] : []),
+  ]);
+  const missingProviders = credentials
+    ? [...chosenProviders].filter(
+        (p) => credentials[p as LiveProvider] === false,
+      )
+    : [];
+  const overridden = Object.keys(perAgent).length;
   const blocked =
     live &&
     (!hasKey ||
       !confirm ||
+      missingProviders.length > 0 ||
       (provider === "anthropic" &&
         estimate?.overBudget === true &&
         !overrideBudget));
+
+  const renderOptions = (current: ModelChoice | null) => {
+    // a YAML model missing from pricing.yaml still has to be selectable
+    const currentValue = current ? encode(current, runProvider) : "";
+    const known = groups.some((g) =>
+      g.models.some((m) => `${g.provider}|${m}` === currentValue),
+    );
+    return (
+      <>
+        {groups.map((group) => {
+          const ok = credentials?.[group.provider] !== false;
+          return (
+            <optgroup
+              key={group.provider}
+              label={`${group.label}${ok ? "" : " — no credentials"}`}
+            >
+              {group.models.map((name) => (
+                <option
+                  key={name}
+                  value={`${group.provider}|${name}`}
+                  disabled={!ok}
+                >
+                  {name}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
+        {current && !known && (
+          <option value={currentValue}>
+            {currentValue.replace("|", " · ")}
+          </option>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-end gap-3">
@@ -127,7 +261,7 @@ export function LaunchForm({
           <Input
             id="launch-label"
             className="w-44"
-            placeholder="e.g. sonnet-vs-haiku"
+            placeholder="e.g. opus-mafia-vs-sonnet"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
@@ -157,7 +291,7 @@ export function LaunchForm({
             htmlFor="launch-model"
             className="flex flex-col gap-1 text-xs text-muted-foreground"
           >
-            model
+            default model
             <select
               id="launch-model"
               className="h-9 rounded-md border bg-transparent px-2 text-sm"
@@ -224,6 +358,102 @@ export function LaunchForm({
       </div>
 
       {live && (
+        <div className="space-y-2 rounded-md border p-3">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <p className="text-sm font-semibold">Players</p>
+            <p className="text-xs text-muted-foreground">
+              each player runs on the default model unless you pick one here
+              {overridden > 0 && ` · ${overridden} overridden`}
+            </p>
+            {overridden > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs"
+                onClick={() =>
+                  setPlayers(
+                    Object.fromEntries(agentNames.map((name) => [name, null])),
+                  )
+                }
+              >
+                reset all
+              </Button>
+            )}
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {agentNames.map((name) => {
+              const hint = privatePrompts[name];
+              const choice = players[name] ?? null;
+              return (
+                <label
+                  key={name}
+                  htmlFor={`player-${name}`}
+                  className="flex flex-col gap-1 rounded border px-2 py-1.5 text-xs"
+                >
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: agentColor(name) }}
+                    />
+                    <span className="font-medium text-foreground">{name}</span>
+                    {hint && (
+                      <span
+                        className="truncate italic text-muted-foreground"
+                        title={hint}
+                      >
+                        {hint}
+                      </span>
+                    )}
+                  </span>
+                  <select
+                    id={`player-${name}`}
+                    aria-label={`model for ${name}`}
+                    className="h-8 rounded-md border bg-transparent px-2 text-xs"
+                    value={choice ? encode(choice, runProvider) : ""}
+                    onChange={(e) =>
+                      setPlayers((prev) => ({
+                        ...prev,
+                        [name]: decode(e.target.value),
+                      }))
+                    }
+                  >
+                    <option value="">default · {model || "from config"}</option>
+                    {renderOptions(choice)}
+                  </select>
+                </label>
+              );
+            })}
+            {moderator && (
+              <label
+                htmlFor="player-moderator"
+                className="flex flex-col gap-1 rounded border border-amber-500/40 px-2 py-1.5 text-xs"
+              >
+                <span className="flex items-center gap-2">
+                  <span className="font-medium text-foreground">moderator</span>
+                  <span className="italic text-muted-foreground">
+                    referees; never a player
+                  </span>
+                </span>
+                <select
+                  id="player-moderator"
+                  aria-label="model for moderator"
+                  className="h-8 rounded-md border bg-transparent px-2 text-xs"
+                  value={
+                    moderatorChoice ? encode(moderatorChoice, runProvider) : ""
+                  }
+                  onChange={(e) =>
+                    setModeratorChoice(decode(e.target.value) ?? moderator)
+                  }
+                >
+                  {renderOptions(moderatorChoice)}
+                </select>
+              </label>
+            )}
+          </div>
+        </div>
+      )}
+
+      {live && (
         <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
           {estimate ? (
             <p>
@@ -232,13 +462,16 @@ export function LaunchForm({
               {estimate.outputTokens.toLocaleString()} out tokens ·{" "}
               <span className="font-semibold">
                 {estimate.usd === null
-                  ? `no pricing for ${model}`
+                  ? "no pricing for one of the chosen models"
                   : `~$${estimate.usd.toFixed(3)}`}
               </span>{" "}
-              on {model}
-              {provider === "anthropic"
-                ? ` (budget $${estimate.budgetUsd})`
-                : " — API-equivalent; bills your Claude subscription's usage window, not dollars"}
+              {overridden > 0 ? "across the chosen models" : `on ${model}`}
+              {chosenProviders.has("anthropic") &&
+              chosenProviders.has("claude_code")
+                ? ` — mixed billing: anthropic players spend API credits (budget $${estimate.budgetUsd}), claude_code players spend subscription usage`
+                : provider === "anthropic"
+                  ? ` (budget $${estimate.budgetUsd})`
+                  : " — API-equivalent; bills your Claude subscription's usage window, not dollars"}
             </p>
           ) : (
             <p>Estimating…</p>
@@ -254,7 +487,14 @@ export function LaunchForm({
               Claude Code is not logged in in this environment.
             </p>
           )}
-          {provider === "claude_code" && (
+          {missingProviders
+            .filter((p) => p !== provider)
+            .map((p) => (
+              <p key={p} className="text-destructive">
+                A player is set to {p}, which has no credentials here.
+              </p>
+            ))}
+          {chosenProviders.has("claude_code") && (
             <p className="text-xs text-muted-foreground">
               Purity note: Claude Code injects a constant environment block the
               agents can see, and temperature is not controllable. Constant
@@ -267,7 +507,7 @@ export function LaunchForm({
               checked={confirm}
               onChange={(e) => setConfirm(e.target.checked)}
             />
-            {provider === "anthropic"
+            {chosenProviders.has("anthropic")
               ? "Spend real API credit on this run"
               : "Spend Claude subscription usage on this run"}
           </label>

@@ -21,7 +21,7 @@ model:
 
 agents:
   count: 7
-  names: auto            # A..G; B and E are mafia (see private_prompts)
+  names: [Alice, Bob, Charlie, Dana, Eve, Frank, Grace]   # Bob and Eve are mafia (see private_prompts)
   identity: persistent
   mark_self: true
 
@@ -47,7 +47,7 @@ rooms:
   village:
     members: all
   night:
-    members: [B, E]
+    members: [Bob, Eve]
     prompt: >-
       This is the night room. Only the mafia can read or write here. The
       village room cannot see anything posted here.
@@ -65,13 +65,13 @@ common_prompt: |
   Speak naturally, reason about who to trust, and act.
 
 private_prompts:
-  A: "You are a villager."
-  B: "You are mafia. Your partner is E. Coordinate in the night room; blend in by day."
-  C: "You are a villager."
-  D: "You are a villager."
-  E: "You are mafia. Your partner is B. Coordinate in the night room; blend in by day."
-  F: "You are a villager."
-  G: "You are a villager."
+  Alice: "You are a villager."
+  Bob: "You are mafia. Your partner is Eve. Coordinate in the night room; blend in by day."
+  Charlie: "You are a villager."
+  Dana: "You are a villager."
+  Eve: "You are mafia. Your partner is Bob. Coordinate in the night room; blend in by day."
+  Frank: "You are a villager."
+  Grace: "You are a villager."
 
 # Phase clock: three day/night cycles. The operator announces vote and kill
 # outcomes between phases from the Moderator box.
@@ -117,6 +117,17 @@ render:
     {new_posts}
     Reply POST to post your message as written, CANCEL to discard it, or REVISE
     followed by the new text.
+
+# What the run viewer highlights as a structured move (badge + running
+# tally for the operator's eyes only; agents never see the viewer).
+viewer:
+  moves:
+    - name: vote
+      room: village
+      pattern: "^\\s*VOTE\\s+([A-Za-z]+)\\s*$"
+    - name: kill
+      room: night
+      pattern: "^\\s*KILL\\s+([A-Za-z]+)\\s*$"
 
 metrics:
   bucket_seconds: 300

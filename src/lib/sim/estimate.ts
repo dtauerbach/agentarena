@@ -89,14 +89,34 @@ export function estimateCost(
     moderatorOutput = Math.round(moderatorOutput);
   }
 
-  const agentRates = pricing[config.model.name];
+  // heterogeneous societies: each agent's share of the traffic is its share
+  // of room memberships, priced at its own model
+  const shares = config.agentNames.map((name) => ({
+    name,
+    weight: Object.values(config.rooms).filter(
+      (room) => room.members === "all" || room.members.includes(name),
+    ).length,
+  }));
+  const totalWeight = shares.reduce((n, s) => n + s.weight, 0) || 1;
+  let agentCost: number | null = 0;
+  for (const { name, weight } of shares) {
+    const rates =
+      pricing[config.model.per_agent[name]?.name ?? config.model.name];
+    if (rates === undefined) {
+      agentCost = null;
+      break;
+    }
+    agentCost +=
+      (weight / totalWeight) *
+      usd(rates, { input: inputTokens, output: outputTokens });
+  }
   const moderatorRates = config.moderator
     ? pricing[config.moderator.model]
     : undefined;
   const cost =
-    agentRates === undefined || (config.moderator && !moderatorRates)
+    agentCost === null || (config.moderator && !moderatorRates)
       ? null
-      : usd(agentRates, { input: inputTokens, output: outputTokens }) +
+      : agentCost +
         (moderatorRates
           ? usd(moderatorRates, {
               input: moderatorInput,
