@@ -167,6 +167,8 @@ export type OperatorCommand =
   | { kind: "unmute"; agent: string }
   | { kind: "join"; agent: string; room: string }
   | { kind: "leave"; agent: string; room: string }
+  | { kind: "open"; room: string }
+  | { kind: "close"; room: string }
   | { kind: "stop" };
 
 export type OperatorPort = {
@@ -190,13 +192,17 @@ export async function runEngine(
   const agents = new Map<string, AgentState>(
     config.agentNames.map((name) => [name, makeAgentState(config, name)]),
   );
-  const rooms = new Map<string, { prompt?: string; members: Set<string> }>();
+  const rooms = new Map<
+    string,
+    { prompt?: string; members: Set<string>; closed: boolean }
+  >();
   for (const [roomName, room] of Object.entries(config.rooms))
     rooms.set(roomName, {
       ...(room.prompt !== undefined ? { prompt: room.prompt } : {}),
       members: new Set(
         room.members === "all" ? config.agentNames : room.members,
       ),
+      closed: room.closed,
     });
   const roomPosts = new Map<string, BoardPost[]>(
     [...rooms.keys()].map((name) => [name, []]),
@@ -363,6 +369,45 @@ export async function runEngine(
         });
         return;
       }
+      case "close": {
+        const room = rooms.get(command.room);
+        if (!room || room.closed) return;
+        room.closed = true;
+        // queued wakes in this room lapse; drafts in flight dissolve at landing
+        for (const member of room.members) {
+          const state = agents.get(member)?.rooms.get(command.room);
+          if (state) state.wakeVersion += 1;
+        }
+        hooks.emit({
+          t: simNow,
+          kind: "room_close",
+          room: command.room,
+          ...viaTag(via),
+        });
+        return;
+      }
+      case "open": {
+        const room = rooms.get(command.room);
+        if (!room || !room.closed) return;
+        room.closed = false;
+        hooks.emit({
+          t: simNow,
+          kind: "room_open",
+          room: command.room,
+          ...viaTag(via),
+        });
+        for (const member of room.members) {
+          const agent = agents.get(member);
+          if (!agent || agent.muted) continue;
+          const state = roomState(agent, command.room);
+          scheduleWake(
+            agent,
+            command.room,
+            simNow + sampleWait(config, agent.name, state.preference, rng),
+          );
+        }
+        return;
+      }
       case "stop":
         stopped = true;
         return;
@@ -378,6 +423,7 @@ export async function runEngine(
     rooms: Object.fromEntries(
       [...rooms].map(([name, room]) => [name, [...room.members]]),
     ),
+    closed_rooms: [...rooms].filter(([, r]) => r.closed).map(([n]) => n),
   });
   // G1: broadcast injections expand to per-agent events in name order
   for (const inj of config.injections) {
@@ -398,7 +444,7 @@ export async function runEngine(
   }
   for (const [name, room] of rooms)
     for (const member of config.agentNames) {
-      if (!room.members.has(member)) continue;
+      if (!room.members.has(member) || room.closed) continue;
       const agent = agents.get(member) as AgentState;
       scheduleWake(agent, name, sampleFirstWake(config, member, rng));
     }
@@ -537,6 +583,9 @@ export async function runEngine(
         const header = fill(mod.room_header, {
           room: roomName,
           members: [...room.members].join(", ") || "(empty)",
+          status: room.closed
+            ? (mod.room_status?.closed ?? "")
+            : (mod.room_status?.open ?? ""),
         });
         const board = renderModeratorBoard(
           config,
@@ -705,14 +754,19 @@ export async function runEngine(
       const draft = event.draft;
       agent.composing = false;
 
-      // a draft from a muted or departed agent dissolves instead of landing
-      if (agent.muted || !members?.has(agent.name)) {
+      // a draft from a muted or departed agent, or into a room that closed
+      // meanwhile, dissolves instead of landing
+      if (agent.muted || !members?.has(agent.name) || rooms.get(room)?.closed) {
         hooks.emit({
           t: event.time,
           kind: "cancel",
           agent: agent.name,
           room,
-          reason: agent.muted ? "muted" : "left_room",
+          reason: agent.muted
+            ? "muted"
+            : !members?.has(agent.name)
+              ? "left_room"
+              : "room_closed",
         });
         continue;
       }
@@ -866,8 +920,13 @@ export async function runEngine(
       const agent = agents.get(event.agent) as AgentState;
       const state = roomState(agent, event.room);
       // a stale wake was superseded by a reschedule; composing or muted
-      // agents don't wake
-      if (event.version !== state.wakeVersion || agent.composing || agent.muted)
+      // agents don't wake, and nobody wakes in a closed room
+      if (
+        event.version !== state.wakeVersion ||
+        agent.composing ||
+        agent.muted ||
+        rooms.get(event.room)?.closed === true
+      )
         continue;
       batch.push({ time: event.time, agent, room: event.room });
     }

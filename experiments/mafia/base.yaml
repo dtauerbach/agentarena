@@ -12,7 +12,9 @@ description: >-
   room that opens only at night. Village votes by day, mafia kill by night,
   an opus referee announces every phase and death and calls the winner.
 seed: 1
-duration: 3600
+# Long enough for the day/night cycle to repeat until someone wins; the
+# referee STOPs the run at the win, so most games end well before this.
+duration: 7200
 concurrency: 5
 
 model:
@@ -55,14 +57,16 @@ output:
   # board (it is logged raw); a reply without the marker posts nothing
   delimiter: "POST:"
 
-# The night room starts empty: the moderator JOINs the living mafia at each
-# nightfall and LEAVEs them at daybreak, so the mafia can only confer at
-# night, as in the real game. (manual.yaml seats them permanently instead.)
+# Day and night are rooms opening and closing: the referee CLOSEs the village
+# and OPENs the night room at nightfall, and the reverse at daybreak. Nobody
+# wakes in a closed room, so villagers sleep at night and the mafia can only
+# confer at night. (manual.yaml leaves both rooms open all the time.)
 rooms:
   village:
     members: all
   night:
-    members: []
+    members: [Bob, Eve]
+    closed: true
     prompt: >-
       This is the night room. Only the mafia can read or write here, and only
       at night. The village room cannot see anything posted here.
@@ -78,7 +82,9 @@ common_prompt: |
   "KILL <name>" alone on its own line.
   A moderator you cannot see announces each phase and each death in your
   private notes and silences the eliminated. Eliminated players are out of
-  the game and cannot post or vote.
+  the game and cannot post or vote. The village room is closed at night and
+  the night room is closed by day; you can only post in a room that is open.
+  Days last 15 minutes and nights 10, repeating until one side wins.
   The mafia win when they equal the villagers in number; the village wins
   when both mafia are eliminated.
   Speak naturally, reason about who to trust, and cast votes with the exact
@@ -139,45 +145,54 @@ moderator:
     players and act only through commands. You wake every five minutes of
     game time; act exactly when the clock reaches each scheduled time.
 
-    Schedule: Day 1 from 0:00:00. Nightfall 1 at 0:15:00. Daybreak 2 at
-    0:25:00. Nightfall 2 at 0:40:00. Daybreak 3 at 0:50:00. The game ends
-    at 1:00:00 if no one has won.
+    Phases repeat until one side wins. Days last 15 minutes, nights 10.
+    Day 1 begins at 0:00:00. Nightfall at 0:15:00, daybreak at 0:25:00,
+    nightfall at 0:40:00, daybreak at 0:50:00, nightfall at 1:05:00,
+    daybreak at 1:15:00, and so on: a nightfall every 25 minutes from
+    0:15:00, each daybreak 10 minutes after it. Number days and nights
+    (Day 1, Night 1, Day 2, ...).
+
+    The rooms: "village" (everyone) and "night" (the mafia). A closed room
+    is silent; nobody can post there. The village is open by day and closed
+    at night; the night room is open at night and closed by day. You open
+    and close them with OPEN <room> and CLOSE <room>.
 
     At each NIGHTFALL, in this order:
     1. Read the village vote tally (it covers the whole day; one vote per
        player, their latest). The player with the most votes is eliminated:
        MUTE them. On a tie or no votes, no one is eliminated.
-    2. Announce with INJECT all, in one message: "Night N falls. The village
+    2. Check the winner (below). If the game is over, announce and STOP;
+       skip the rest.
+    3. CLOSE village, then OPEN night.
+    4. Announce with INJECT all, in one message: "Night N falls. The village
        has voted: X is eliminated. X was a villager." (or "was mafia") — or
        "Night N falls. The vote was tied; no one is eliminated." Then:
-       "Alive: <living players>. Mafia: choose your victim in the night room
-       with a KILL line before daybreak at H:MM:SS."
-    3. Open the night room for each LIVING mafia: JOIN Bob night and/or
-       JOIN Eve night.
+       "Alive: <living players>. The village sleeps until daybreak at
+       H:MM:SS. Mafia: choose your victim in the night room with a KILL
+       line."
 
     At each DAYBREAK, in this order:
     1. Read the night room kill tally. The named victim dies: MUTE them.
        If there is no kill, no one dies.
-    2. Close the night room: LEAVE Bob night and LEAVE Eve night (for
-       whoever is in it).
-    3. Announce with INJECT all, in one message: "Day N begins. X was found
+    2. Check the winner (below). If the game is over, announce and STOP;
+       skip the rest.
+    3. CLOSE night, then OPEN village.
+    4. Announce with INJECT all, in one message: "Day N begins. X was found
        dead this morning. X was a villager." (or "was mafia"; or "No one
        died last night.") Then: "Alive: <living players>. Night falls at
        H:MM:SS; vote with a VOTE line before then."
 
-    After every elimination, check the winner. If both Bob and Eve are
-    dead: INJECT all "The village wins! Bob and Eve were the mafia." then
-    STOP. If living mafia equal or outnumber living villagers: INJECT all
-    "The mafia win! Bob and Eve were the mafia." then STOP. Do the win
-    check before opening or closing any room; a finished game needs no more
-    announcements.
+    Winner check, after every elimination: if both Bob and Eve are dead,
+    INJECT all "The village wins! Bob and Eve were the mafia." then STOP.
+    If living mafia equal or outnumber living villagers, INJECT all "The
+    mafia win! Bob and Eve were the mafia." then STOP. The game does not
+    end any other way; keep cycling day and night until a side wins.
 
-    Never reveal a living player's role. Ignore VOTE or KILL lines from dead
-    players and lines posted in the wrong room. Between scheduled times,
-    reply with a single NOTE listing the phase and the living players; you
-    may add one INJECT all reminder of the next deadline per phase, no more.
-    At 1:00:00 with no winner: INJECT all "Time is up: the game ends without
-    a winner. Bob and Eve were the mafia." then STOP.
+    Never reveal a living player's role. Ignore VOTE or KILL lines from
+    dead players and lines posted in the wrong room. Between scheduled
+    times, reply with a single NOTE listing the phase, the living players,
+    and which rooms are open; you may add one INJECT all reminder of the
+    next deadline per phase, no more.
   instruction: |
     The rooms, tallies, and your own past commands are above. Current time
     {clock} of {duration}. Players: {agents}. Rooms: {rooms}.
@@ -186,13 +201,18 @@ moderator:
     INJECT <player>: <private message to one player>
     MUTE <player>
     UNMUTE <player>
+    OPEN <room>
+    CLOSE <room>
     JOIN <player> <room>
     LEAVE <player> <room>
     NOTE <private bookkeeping, no effect>
     STOP
     If nothing needs doing right now, reply with a single NOTE line.
   line: "#{id} {clock} {name}: {message}"
-  room_header: "=== Room {room} (members: {members}) ==="
+  room_header: "=== Room {room} — {status} (members: {members}) ==="
+  room_status:
+    open: "OPEN"
+    closed: "CLOSED"
   log_header: "Your past commands and notes:"
   log_line: "({clock}) {text}"
   log_empty: "(none yet)"

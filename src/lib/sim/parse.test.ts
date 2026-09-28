@@ -135,6 +135,19 @@ describe("output modes", () => {
   });
 });
 
+describe("moderator room commands", () => {
+  it("parses OPEN and CLOSE with trailing punctuation", () => {
+    const lines = parseModerator("OPEN night\nCLOSE village.\nOPEN 42-room!");
+    expect(
+      lines.map((l) => (l.kind === "command" ? l.command : l.kind)),
+    ).toEqual([
+      { kind: "open", room: "night" },
+      { kind: "close", room: "village" },
+      { kind: "open", room: "42-room" },
+    ]);
+  });
+});
+
 describe("moderator command protocol", () => {
   it("parses every verb, case-insensitively, with trailing punctuation", () => {
     expect(parseModerator("INJECT all: Night falls.")).toEqual([

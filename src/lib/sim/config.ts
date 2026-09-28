@@ -131,9 +131,12 @@ export const configSchema = z.strictObject({
       z.strictObject({
         members: z.union([z.literal("all"), z.array(z.string())]),
         prompt: z.string().optional(),
+        // a closed room keeps its members but nobody wakes in it until an
+        // OPEN command (moderator or operator) — day/night phases
+        closed: z.boolean().default(false),
       }),
     )
-    .default({ main: { members: "all" } }),
+    .default({ main: { members: "all", closed: false } }),
   board: z
     .strictObject({
       visibility: z
@@ -181,6 +184,10 @@ export const configSchema = z.strictObject({
       log_empty: z.string(),
       tally_header: z.string().optional(),
       tally_line: z.string().optional(),
+      // words for the {status} placeholder of room_header
+      room_status: z
+        .strictObject({ open: z.string(), closed: z.string() })
+        .optional(),
       model: z.string(),
       provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
       cadence: z.number().positive(),

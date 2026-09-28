@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import type { Effort, Thinking } from "../config";
-import type { Provider } from "../types";
+import type { Provider, ProviderResult } from "../types";
 
 // Runs each wake as a single `claude -p` call, billed to the operator's
 // Claude subscription instead of API credits. Purity caveats, measured and
@@ -64,67 +64,80 @@ export function makeClaudeCodeProvider(options: {
       else if (thinking === "adaptive") delete env.MAX_THINKING_TOKENS;
       else env.MAX_THINKING_TOKENS = String(thinking);
       env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(req.maxTokens);
-      return new Promise((resolve, reject) => {
-        const child = execFile(
-          "claude",
-          args,
-          { env, timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
-          (error, stdout, stderr) => {
-            if (error) {
-              reject(
-                new Error(
-                  `claude -p failed: ${error.message} ${stderr.slice(0, 300)}`,
-                ),
-              );
-              return;
-            }
-            let parsed: {
-              result?: string;
-              is_error?: boolean;
-              usage?: {
-                input_tokens?: number;
-                output_tokens?: number;
-                cache_read_input_tokens?: number;
-                cache_creation_input_tokens?: number;
+      // one retry on a process-level failure (non-zero exit, no result):
+      // the CLI occasionally dies transiently; a model reply is never retried
+      const attempt = (retries: number): Promise<ProviderResult> =>
+        run().catch((error: unknown) => {
+          if (retries === 0 || !(error instanceof ProcessFailure)) throw error;
+          return new Promise<ProviderResult>((resolve) =>
+            setTimeout(resolve, 2000),
+          ).then(() => attempt(retries - 1));
+        });
+      const run = (): Promise<ProviderResult> =>
+        new Promise((resolve, reject) => {
+          const child = execFile(
+            "claude",
+            args,
+            { env, timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
+            (error, stdout, stderr) => {
+              if (error) {
+                reject(
+                  new ProcessFailure(
+                    `claude -p failed: ${error.message.slice(0, 200)} ${stderr.slice(0, 300)}`,
+                  ),
+                );
+                return;
+              }
+              let parsed: {
+                result?: string;
+                is_error?: boolean;
+                usage?: {
+                  input_tokens?: number;
+                  output_tokens?: number;
+                  cache_read_input_tokens?: number;
+                  cache_creation_input_tokens?: number;
+                };
               };
-            };
-            try {
-              parsed = JSON.parse(stdout) as typeof parsed;
-            } catch {
-              reject(
-                new Error(
-                  `claude -p returned non-JSON: ${stdout.slice(0, 200)}`,
-                ),
-              );
-              return;
-            }
-            if (parsed.is_error === true) {
-              reject(
-                new Error(
-                  `claude -p error: ${String(parsed.result).slice(0, 300)}`,
-                ),
-              );
-              return;
-            }
-            resolve({
-              text: parsed.result ?? "",
-              usage: {
-                inputTokens: parsed.usage?.input_tokens ?? 0,
-                outputTokens: parsed.usage?.output_tokens ?? 0,
-                cacheReadTokens: parsed.usage?.cache_read_input_tokens ?? 0,
-                cacheWriteTokens:
-                  parsed.usage?.cache_creation_input_tokens ?? 0,
-              },
-              raw: parsed,
-            });
-          },
-        );
-        // the wake prompt goes over stdin so board size never hits argv limits
-        child.stdin?.end(req.blocks.join("\n\n"));
-      });
+              try {
+                parsed = JSON.parse(stdout) as typeof parsed;
+              } catch {
+                reject(
+                  new Error(
+                    `claude -p returned non-JSON: ${stdout.slice(0, 200)}`,
+                  ),
+                );
+                return;
+              }
+              if (parsed.is_error === true) {
+                reject(
+                  new Error(
+                    `claude -p error: ${String(parsed.result).slice(0, 300)}`,
+                  ),
+                );
+                return;
+              }
+              resolve({
+                text: parsed.result ?? "",
+                usage: {
+                  inputTokens: parsed.usage?.input_tokens ?? 0,
+                  outputTokens: parsed.usage?.output_tokens ?? 0,
+                  cacheReadTokens: parsed.usage?.cache_read_input_tokens ?? 0,
+                  cacheWriteTokens:
+                    parsed.usage?.cache_creation_input_tokens ?? 0,
+                },
+                raw: parsed,
+              });
+            },
+          );
+          // the wake prompt goes over stdin so board size never hits argv limits
+          child.stdin?.end(req.blocks.join("\n\n"));
+        });
+      return attempt(1);
     },
   };
 }
+
+class ProcessFailure extends Error {}
 
 // Pre-launch credential probe: one tiny real call. Catches an expired Claude
 // Code login BEFORE a run starts, instead of a full run of failed calls that

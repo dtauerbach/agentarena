@@ -95,6 +95,18 @@
   on the board — Bob's "I'm mafia with Eve as my partner" and Eve's "Bob is
   my partner" sat in the private half of 4 replies and never posted. Mafia
   won 2v2 at 0:40:00 after Alice, Charlie, Frank died; referee clean.
+- **2026-09-28 day/night for real.** Operator's own game (`…190629-classic`)
+  exposed: villagers chatting through the night (village open 24/7), a
+  post landing at 15:00 shown *after* the 15:00 elimination (viewer imposed
+  a fixed same-t order), broadcast announcements duplicated into the night
+  panel, "time is up" at 1:00:00 with one mafia and two villagers left, a
+  scary banner for one transient CLI failure. Now: rooms OPEN/CLOSE as a
+  moderator/operator command (closed = nobody wakes, drafts dissolve; night
+  room seated but closed by day, village closed at night), phases repeat
+  until a side wins (duration 7200, referee STOPs at the win), viewer keeps
+  engine arrival order at equal t, announcements only in the public panel,
+  room open/close dividers + CLOSED badge, banner reworded, claude_code
+  retries a process-level failure once.
 
 ## Decisions
 
@@ -271,3 +283,6 @@
 - 2026-09-28: POST: delimiter scratchpad (mafia), thinking/effort knobs on
   model/per_agent/moderator for claude_code and anthropic, launch-form
   thinking override, receipts show thinking tokens/summaries.
+- 2026-09-28: room OPEN/CLOSE command + `rooms.<name>.closed`; mafia plays
+  day/night cycles until a winner; viewer arrival ordering, announcement
+  placement, banner wording; claude_code single retry on process failure.

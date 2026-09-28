@@ -1,9 +1,10 @@
 # Mafia with YOU as the moderator: no referee model. From the run page's
 # Moderator box (debug mode) you announce outcomes ("inject → all"), mute the
-# eliminated, and stop the game. The phase clock below is scheduled; the
-# night room is open to the mafia throughout since nobody opens it for them.
+# eliminated, and stop the game. The phase clock below is scheduled; both
+# rooms stay open throughout unless you close them from the Moderator box.
 extends: ./base.yaml
 name: manual
+duration: 3600
 description: >-
   Human-moderated Mafia: the phase bells are scheduled, you resolve votes and
   kills from the run page. Not seed-reproducible, by design.
@@ -14,6 +15,7 @@ rooms:
     members: all
   night:
     members: [Bob, Eve]
+    closed: false
     prompt: >-
       This is the night room. Only the mafia can read or write here. The
       village room cannot see anything posted here.

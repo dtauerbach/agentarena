@@ -88,6 +88,8 @@ export type ModeratorCommand =
   | { kind: "unmute"; agent: string }
   | { kind: "join"; agent: string; room: string }
   | { kind: "leave"; agent: string; room: string }
+  | { kind: "open"; room: string }
+  | { kind: "close"; room: string }
   | { kind: "stop" };
 
 export type ModeratorLine =
@@ -134,6 +136,20 @@ function parseModeratorLine(line: string): ModeratorLine {
         agent: join[1] as string,
         room: join[2] as string,
       },
+      line,
+    };
+  const open = /^OPEN\s+([\w-]+?)[.!?…]*$/i.exec(line);
+  if (open)
+    return {
+      kind: "command",
+      command: { kind: "open", room: open[1] as string },
+      line,
+    };
+  const close = /^CLOSE\s+([\w-]+?)[.!?…]*$/i.exec(line);
+  if (close)
+    return {
+      kind: "command",
+      command: { kind: "close", room: close[1] as string },
       line,
     };
   const leave = /^LEAVE\s+(\S+)\s+([\w-]+)$/i.exec(line);

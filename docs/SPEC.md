@@ -309,7 +309,7 @@ private_prompts: {}
 injections: []                  # {at, agent: name | [names] | all, text}
 moderator:                      # optional config-driven referee (see §11a)
   prompt: ...                   # its system prompt; all its templates are YAML
-  instruction: ...              # command-protocol description (INJECT/MUTE/UNMUTE/JOIN/LEAVE/NOTE/STOP)
+  instruction: ...              # command-protocol description (INJECT/MUTE/UNMUTE/OPEN/CLOSE/JOIN/LEAVE/NOTE/STOP)
   line: "#{id} {clock} {name}: {message}"   # omniscient board line
   room_header: ... / log_header: ... / log_line: ... / log_empty: ...
   tally_header: ... / tally_line: ...       # required when tallies set
@@ -320,7 +320,8 @@ moderator:                      # optional config-driven referee (see §11a)
                                 # since its last wake (or the last `window` seconds);
                                 # `latest: true` = one move per player, latest wins
 rooms:                          # default: one room holding everyone
-  main: { members: all }        # members: all | [names]; optional prompt: "..."
+  main: { members: all }        # members: all | [names]; optional prompt: "..."; closed: true
+                                # starts the room closed (nobody wakes) until OPEN
 render: {...}                   # inherited from base
 cost:
   assumed_post_rate: 0.5        # for the pre-run estimate only
@@ -435,9 +436,11 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   a model that wakes alone every `cadence` sim seconds, sees every room
   (omniscient, invisible, full visibility, names even in anonymous mode),
   the mechanical tallies, and its own past commands, and replies in a line
-  protocol (`INJECT <agent|all>: text`, `MUTE X`, `UNMUTE X`, `JOIN X room`,
-  `LEAVE X room`, `NOTE …`, `STOP`) parsed onto the same operator command
-  port. Unparseable lines and unknown targets are logged
+  protocol (`INJECT <agent|all>: text`, `MUTE X`, `UNMUTE X`, `OPEN room`,
+  `CLOSE room`, `JOIN X room`, `LEAVE X room`, `NOTE …`, `STOP`) parsed onto
+  the same operator command port. OPEN/CLOSE toggle a room: a closed room
+  keeps its members but nobody wakes in it and drafts in flight dissolve —
+  day/night phases without touching membership. Unparseable lines and unknown targets are logged
   (`moderator_unparsed`) and never applied. The engine still adjudicates
   nothing: it counts, renders, parses, and relays; every ruling is the
   moderator model's raw output. Unlike human moderation, a config-moderated

@@ -119,6 +119,20 @@ export function ModeratorBox({ runId, agentNames, rooms, muted }: Props) {
         >
           Leave
         </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => send({ kind: "open", room })}
+        >
+          Open room
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => send({ kind: "close", room })}
+        >
+          Close room
+        </Button>
         {status && (
           <span className="text-xs text-muted-foreground">{status}</span>
         )}

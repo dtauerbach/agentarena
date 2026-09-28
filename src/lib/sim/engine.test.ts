@@ -317,9 +317,10 @@ describe("G1-G3: broadcast injections, rooms, operator", () => {
       ...base(),
       activity: { ...base().activity, p: 0.5 },
       rooms: {
-        main: { members: "all" as const },
+        main: { members: "all" as const, closed: false },
         night: {
           members: ["B", "D"],
+          closed: false,
           prompt: "NIGHT-ROOM-MARKER: only you two see this.",
         },
       },
@@ -396,8 +397,8 @@ describe("G1-G3: broadcast injections, rooms, operator", () => {
     const config = {
       ...base(),
       rooms: {
-        main: { members: "all" as const },
-        side: { members: ["A", "B"] },
+        main: { members: "all" as const, closed: false },
+        side: { members: ["A", "B"], closed: false },
       },
     };
     const collected = await run(
@@ -466,6 +467,92 @@ describe("per-agent providers", () => {
     expect(otherPosts.length).toBeGreaterThan(0);
     for (const post of bPosts) expect(post.message).toBe("FROM-MODEL-X");
     for (const post of otherPosts) expect(post.message).toBe("FROM-MODEL-Y");
+  });
+});
+
+describe("room open/close", () => {
+  it("nobody wakes in a closed room; OPEN schedules wakes, CLOSE stops them", async () => {
+    const base = loadConfig("experiments/nogame/A_baseline.yaml", {
+      provider: "mock",
+      duration: 1200,
+    });
+    const config = {
+      ...base,
+      rooms: {
+        main: { members: "all" as const, closed: false },
+        side: { members: ["A", "B"], closed: true },
+      },
+      moderator: {
+        prompt: "ref",
+        instruction: "NOTE or commands",
+        line: "#{id} {clock} {name}: {message}",
+        room_header: "=== {room} ({status}) ===",
+        room_status: { open: "open", closed: "closed" },
+        log_header: "log:",
+        log_line: "({clock}) {text}",
+        log_empty: "(none)",
+        model: "mock-model",
+        cadence: 300,
+        temperature: 0,
+        max_tokens: 100,
+        thinking: "off" as const,
+        tallies: [],
+      },
+    };
+    // referee script: open side at 0:05, close it at 0:10
+    let refWakes = 0;
+    const scripted = {
+      complete: (req: { blocks: string[] }) => {
+        const instruction = req.blocks.at(-1) ?? "";
+        let text = "RED";
+        if (instruction.includes("NOTE")) {
+          refWakes += 1;
+          text =
+            refWakes === 1
+              ? "OPEN side"
+              : refWakes === 2
+                ? "CLOSE side"
+                : "NOTE idle";
+        }
+        return Promise.resolve({
+          text,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        });
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, scripted, {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const side = collected.posts.filter((p) => p.room === "side");
+    expect(side.length).toBeGreaterThan(0);
+    for (const post of side) {
+      expect(post.t_wake).toBeGreaterThan(300);
+      expect(post.t_land).toBeLessThanOrEqual(600);
+    }
+    expect(
+      collected.events.some((e) => e.kind === "room_open" && e.room === "side"),
+    ).toBe(true);
+    expect(
+      collected.events.some(
+        (e) => e.kind === "room_close" && e.room === "side",
+      ),
+    ).toBe(true);
+    // the referee's own view names the room state
+    const firstRefCall = collected.calls.find((c) => c.kind === "moderator");
+    expect(firstRefCall?.request.blocks.join("\n")).toContain(
+      "=== side (closed) ===",
+    );
+    const start = collected.events.find((e) => e.kind === "run_start");
+    expect(start?.closed_rooms).toEqual(["side"]);
   });
 });
 

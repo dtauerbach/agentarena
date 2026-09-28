@@ -25,6 +25,7 @@ type Meta = {
   agentNames: string[];
   privatePrompts: Record<string, string>;
   rooms: Record<string, string[]>;
+  closedRooms?: string[];
   rates: Rates | null;
 };
 
@@ -44,8 +45,15 @@ type Silence = { t: number; agent: string; room: string; raw: string };
 
 type Via = "scheduled" | "operator" | "moderator";
 type Inject = { t: number; agent: string; text: string; via: Via };
-type Announcement = { t: number; text: string; via: Via; recipients: string[] };
+type Announcement = {
+  t: number;
+  text: string;
+  via: Via;
+  recipients: string[];
+  order: number;
+};
 type MuteEvent = { t: number; agent: string; via: Via; muted: boolean };
+type RoomToggle = { t: number; room: string; via: Via; closed: boolean };
 type Tally = {
   t: number;
   name: string;
@@ -54,6 +62,19 @@ type Tally = {
 };
 type RefereeLine = { t: number; kind: "note" | "unparsed"; text: string };
 type Move = { name: string; target: string };
+
+// arrival order from the stream: at equal sim time the engine's own order is
+// the truth (a post landing at 15:00 precedes the 15:00 ruling), so feed
+// items sort by (t, arrival) instead of a fixed precedence
+const arrivalOf = new WeakMap<object, number>();
+let arrivalCounter = 0;
+function stamp<T extends object>(item: T): T {
+  arrivalOf.set(item, arrivalCounter++);
+  return item;
+}
+function seq(item: object): number {
+  return arrivalOf.get(item) ?? 0;
+}
 
 function viaOf(data: Record<string, unknown>): Via {
   if (data.moderator === true) return "moderator";
@@ -251,6 +272,7 @@ type FeedItem =
   | { type: "silence"; t: number; order: number; silence: Silence }
   | { type: "announce"; t: number; order: number; announcement: Announcement }
   | { type: "mute"; t: number; order: number; mute: MuteEvent }
+  | { type: "toggle"; t: number; order: number; toggle: RoomToggle }
   | { type: "tally"; t: number; order: number; tally: Tally }
   | { type: "referee"; t: number; order: number; line: RefereeLine };
 
@@ -343,6 +365,7 @@ const toneClass: Record<Tone, { panel: string; card: string; dim: string }> = {
 function RoomPanel({
   room,
   members,
+  closed,
   privateRoom,
   primary,
   multiRoom,
@@ -355,6 +378,7 @@ function RoomPanel({
 }: {
   room: string;
   members: string[];
+  closed: boolean;
   privateRoom: boolean;
   primary: boolean;
   multiRoom: boolean;
@@ -377,6 +401,11 @@ function RoomPanel({
           className={`flex flex-wrap items-baseline gap-2 border-b px-3 py-2 ${privateRoom ? "border-slate-800" : ""}`}
         >
           <h2 className="text-sm font-semibold">{room}</h2>
+          {closed && (
+            <span className="rounded bg-muted px-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              closed
+            </span>
+          )}
           {privateRoom ? (
             <span className={`text-xs ${cls.dim}`}>
               private ·{" "}
@@ -483,6 +512,22 @@ function RoomPanel({
                       ? " is out — silenced by the "
                       : " is back — unmuted by the "}
                     {m.via}
+                  </span>
+                </div>
+              );
+            }
+            case "toggle": {
+              const tg = item.toggle;
+              return (
+                <div
+                  key={`g${tg.room}-${tg.t}-${i}`}
+                  className={`flex items-center gap-2 rounded-md border border-dashed px-3 py-1 text-xs ${cls.dim}`}
+                >
+                  <span className="font-mono tabular-nums">
+                    {renderClock(tg.t)}
+                  </span>
+                  <span>
+                    {tg.room} {tg.closed ? "closed" : "opened"} by the {tg.via}
                   </span>
                 </div>
               );
@@ -607,6 +652,9 @@ export function RunViewer({ runId }: { runId: string }) {
   const [silences, setSilences] = useState<Silence[]>([]);
   const [injects, setInjects] = useState<Inject[]>([]);
   const [mutes, setMutes] = useState<MuteEvent[]>([]);
+  const [toggles, setToggles] = useState<RoomToggle[]>([]);
+  const [closedRooms, setClosedRooms] = useState<Set<string>>(new Set());
+
   const [tallies, setTallies] = useState<Tally[]>([]);
   const [refereeLines, setRefereeLines] = useState<RefereeLine[]>([]);
   const [agentInfo, setAgentInfo] = useState<Record<string, AgentInfo>>({});
@@ -682,13 +730,14 @@ export function RunViewer({ runId }: { runId: string }) {
       if (msg.type === "hello") {
         setMeta(msg.meta);
         setMemberships(msg.meta.rooms ?? {});
+        setClosedRooms(new Set(msg.meta.closedRooms ?? []));
         setMode(msg.mode);
         setSpeedState(msg.state.speed);
         setPaused(msg.state.paused);
         pace.current.speed = msg.state.speed;
         pace.current.paused = msg.state.paused;
       } else if (msg.type === "post") {
-        setPosts((prev) => [...prev, msg.data]);
+        setPosts((prev) => [...prev, stamp(msg.data)]);
         pace.current = {
           ...pace.current,
           t: msg.data.t_land,
@@ -705,17 +754,17 @@ export function RunViewer({ runId }: { runId: string }) {
         if (msg.data.kind === "silence") {
           setCounts((c) => ({ ...c, silences: c.silences + 1 }));
           const { t, agent, room, raw } = msg.data as unknown as Silence;
-          setSilences((prev) => [...prev, { t, agent, room, raw }]);
+          setSilences((prev) => [...prev, stamp({ t, agent, room, raw })]);
         }
         if (msg.data.kind === "inject" && typeof msg.data.agent === "string")
           setInjects((prev) => [
             ...prev,
-            {
+            stamp({
               t: msg.data.t,
               agent: msg.data.agent as string,
               text: String(msg.data.text ?? ""),
               via: viaOf(msg.data),
-            },
+            }),
           ]);
         if (
           (msg.data.kind === "operator_mute" ||
@@ -724,36 +773,57 @@ export function RunViewer({ runId }: { runId: string }) {
         )
           setMutes((prev) => [
             ...prev,
-            {
+            stamp({
               t: msg.data.t,
               agent: msg.data.agent as string,
               via: viaOf(msg.data),
               muted: msg.data.kind === "operator_mute",
-            },
+            }),
           ]);
+        if (
+          (msg.data.kind === "room_open" || msg.data.kind === "room_close") &&
+          typeof msg.data.room === "string"
+        ) {
+          const room = msg.data.room;
+          const closed = msg.data.kind === "room_close";
+          setToggles((prev) => [
+            ...prev,
+            stamp({ t: msg.data.t, room, via: viaOf(msg.data), closed }),
+          ]);
+          setClosedRooms((prev) => {
+            const next = new Set(prev);
+            if (closed) next.add(room);
+            else next.delete(room);
+            return next;
+          });
+        }
         if (msg.data.kind === "tally")
           setTallies((prev) => [
             ...prev,
-            {
+            stamp({
               t: msg.data.t,
               name: String(msg.data.name ?? ""),
               room: String(msg.data.room ?? ""),
               counts: (msg.data.counts ?? {}) as Record<string, number>,
-            },
+            }),
           ]);
         if (msg.data.kind === "moderator_note")
           setRefereeLines((prev) => [
             ...prev,
-            { t: msg.data.t, kind: "note", text: String(msg.data.text ?? "") },
+            stamp({
+              t: msg.data.t,
+              kind: "note",
+              text: String(msg.data.text ?? ""),
+            }),
           ]);
         if (msg.data.kind === "moderator_unparsed")
           setRefereeLines((prev) => [
             ...prev,
-            {
+            stamp({
               t: msg.data.t,
               kind: "unparsed",
               text: `${String(msg.data.line ?? "")} (${String(msg.data.reason ?? "")})`,
-            },
+            }),
           ]);
         setAgentInfo((prev) => applyEvent(prev, msg.data));
         if (msg.data.kind === "room_join" || msg.data.kind === "room_leave") {
@@ -809,7 +879,7 @@ export function RunViewer({ runId }: { runId: string }) {
     }
     for (const el of columnRefs.current.values())
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [posts, injects, mutes]);
+  }, [posts, injects, mutes, toggles]);
 
   const control = async (body: Record<string, unknown>) => {
     const response = await fetch(`/api/runs/${runId}/control`, {
@@ -875,6 +945,7 @@ export function RunViewer({ runId }: { runId: string }) {
           text: inject.text,
           via: inject.via,
           recipients: [inject.agent],
+          order: seq(inject),
         });
     }
     return [...byKey.values()];
@@ -889,39 +960,52 @@ export function RunViewer({ runId }: { runId: string }) {
       list.push(item);
     };
     for (const post of posts)
-      push(post.room, { type: "post", t: post.t_land, order: 3, post });
+      push(post.room, { type: "post", t: post.t_land, order: seq(post), post });
     if (debug)
       for (const silence of silences)
         push(silence.room, {
           type: "silence",
           t: silence.t,
-          order: 4,
+          order: seq(silence),
           silence,
         });
-    for (const a of announcements) {
-      const broadcast = a.recipients.length > 1;
-      if (broadcast)
-        for (const room of roomNames)
-          push(room, { type: "announce", t: a.t, order: 0, announcement: a });
-      else if (debug)
+    // announcements go to every player, so they read once, in the public room
+    for (const a of announcements)
+      if (a.recipients.length > 1 || debug)
         push(primaryRoom, {
           type: "announce",
           t: a.t,
-          order: 0,
+          order: a.order,
           announcement: a,
         });
-    }
     for (const mute of mutes)
       for (const room of roomNames)
         if (meta?.rooms[room]?.includes(mute.agent))
-          push(room, { type: "mute", t: mute.t, order: 1, mute });
+          push(room, { type: "mute", t: mute.t, order: seq(mute), mute });
+    for (const toggle of toggles)
+      push(toggle.room, {
+        type: "toggle",
+        t: toggle.t,
+        order: seq(toggle),
+        toggle,
+      });
     // an empty count every referee wake is noise outside debug
     for (const tally of tallies)
       if (debug || Object.keys(tally.counts).length > 0)
-        push(tally.room, { type: "tally", t: tally.t, order: 2, tally });
+        push(tally.room, {
+          type: "tally",
+          t: tally.t,
+          order: seq(tally),
+          tally,
+        });
     if (debug)
       for (const line of refereeLines)
-        push(primaryRoom, { type: "referee", t: line.t, order: 2, line });
+        push(primaryRoom, {
+          type: "referee",
+          t: line.t,
+          order: seq(line),
+          line,
+        });
     for (const items of Object.values(feeds))
       items.sort((a, b) => a.t - b.t || a.order - b.order);
     return feeds;
@@ -930,6 +1014,7 @@ export function RunViewer({ runId }: { runId: string }) {
     silences,
     announcements,
     mutes,
+    toggles,
     tallies,
     refereeLines,
     debug,
@@ -1050,8 +1135,9 @@ export function RunViewer({ runId }: { runId: string }) {
         <div className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm">
           <p className="font-semibold text-destructive">
             {providerErrors.count} model call
-            {providerErrors.count === 1 ? "" : "s"} failed — posts may be
-            missing. This board is NOT a quiet society.
+            {providerErrors.count === 1 ? "" : "s"} failed. Each failed call is
+            one skipped turn for that player (rescheduled, never retried as a
+            reply); the run continued.
           </p>
           <p className="mt-1 text-xs text-destructive/80">
             First error: {providerErrors.first}
@@ -1215,6 +1301,7 @@ export function RunViewer({ runId }: { runId: string }) {
               key={room}
               room={room}
               members={memberships[room] ?? []}
+              closed={closedRooms.has(room)}
               privateRoom={isPrivate(room)}
               primary={room === primaryRoom}
               multiRoom={multiRoom}

@@ -13,6 +13,8 @@ const commandSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("unmute"), agent: z.string() }),
   z.object({ kind: z.literal("join"), agent: z.string(), room: z.string() }),
   z.object({ kind: z.literal("leave"), agent: z.string(), room: z.string() }),
+  z.object({ kind: z.literal("open"), room: z.string() }),
+  z.object({ kind: z.literal("close"), room: z.string() }),
   z.object({ kind: z.literal("stop") }),
 ]);
 

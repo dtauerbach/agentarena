@@ -38,6 +38,7 @@ export type SessionMeta = {
   agentNames: string[];
   privatePrompts: Record<string, string>;
   rooms: Record<string, string[]>;
+  closedRooms: string[];
   rates: ModelRates | null;
 };
 
@@ -187,6 +188,9 @@ export function launchRun(
       agentNames: config.agentNames,
       privatePrompts: config.private_prompts,
       rooms: resolveRooms(config.rooms, config.agentNames),
+      closedRooms: Object.entries(config.rooms)
+        .filter(([, r]) => r.closed)
+        .map(([n]) => n),
       rates: ratesForModel(config.model.name),
     },
     pacer,
@@ -280,7 +284,7 @@ export function readRunMeta(dir: string): SessionMeta {
     };
     agentNames: string[];
     private_prompts?: Record<string, string>;
-    rooms?: Record<string, { members: "all" | string[] }>;
+    rooms?: Record<string, { members: "all" | string[]; closed?: boolean }>;
     run_label?: string;
     viewer?: { moves?: MoveSpec[] };
     moderator?: { model: string; tallies?: MoveSpec[] };
@@ -305,6 +309,9 @@ export function readRunMeta(dir: string): SessionMeta {
       resolved.rooms ?? { main: { members: "all" } },
       resolved.agentNames,
     ),
+    closedRooms: Object.entries(resolved.rooms ?? {})
+      .filter(([, r]) => r.closed === true)
+      .map(([n]) => n),
     rates: ratesForModel(resolved.model.name),
   };
 }
