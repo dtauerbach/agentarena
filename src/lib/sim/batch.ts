@@ -21,7 +21,9 @@ export type BatchOptions = {
   seedStart: number;
   concurrency: number;
   baseDir?: string;
+  label?: string;
   makeProvider: (seed: number) => Provider | ((agent: string) => Provider);
+  onStart?: (batchDir: string) => void;
   onRunDone?: (seed: number, finished: number, total: number) => void;
 };
 
@@ -30,9 +32,17 @@ export type BatchOptions = {
 export async function runBatch(options: BatchOptions): Promise<string> {
   const { configPath, overrides, n, seedStart, concurrency } = options;
   const probe = loadConfig(configPath, overrides);
+  const slug =
+    options.label !== undefined && options.label.trim() !== ""
+      ? options.label
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "")
+          .slice(0, 40) || probe.name
+      : probe.name;
   const batchDir = join(
     options.baseDir ?? "runs",
-    `batch-${timestamp(new Date())}-${probe.name}`,
+    `batch-${timestamp(new Date())}-${slug}`,
   );
   mkdirSync(batchDir, { recursive: true });
   writeFileSync(
@@ -40,8 +50,11 @@ export async function runBatch(options: BatchOptions): Promise<string> {
     JSON.stringify(
       {
         name: probe.name,
+        ...(options.label !== undefined ? { label: options.label } : {}),
         n,
         seed_start: seedStart,
+        provider: probe.model.provider,
+        model: probe.model.name,
         config: configPath,
         started_at: new Date().toISOString(),
       },
@@ -49,6 +62,7 @@ export async function runBatch(options: BatchOptions): Promise<string> {
       2,
     ),
   );
+  options.onStart?.(batchDir);
   const seeds = Array.from({ length: n }, (_, i) => seedStart + i);
   let finished = 0;
   let index = 0;

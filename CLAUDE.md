@@ -104,7 +104,8 @@ They override convenience, and they override whatever the agents "seem to want".
 ## Layout
 
 ```
-experiments/          pricing.yaml; nogame/{base.yaml, A..U catalog}
+experiments/          pricing.yaml; nogame/{base.yaml, A..U catalog}; mafia/
+observers/            corpus-observer rubrics (interest.yaml, mock.yaml)
 src/lib/sim/          engine.ts config.ts rng.ts board.ts activity.ts agent.ts
                       parse.ts log.ts providers/{anthropic,mock}.ts metrics/
 src/lib/              env.ts, web-side helpers
@@ -125,7 +126,7 @@ Keep this list current. `npm run check` must always pass.
 - `npm test` — vitest
 - `npm run sim -- run experiments/nogame/A_baseline.yaml [--provider mock] [--duration SEC] [--seed N]`
 - `npm run sim -- batch experiments/nogame/J_batch.yaml --n 50 --concurrency 5 [--yes]`
-- `npm run sim -- analyze runs/<dir> [--judge]`
+- `npm run sim -- analyze <runs/dir | batch dir> [--observe observers/<name>.yaml --yes]`
 
 ## Style
 

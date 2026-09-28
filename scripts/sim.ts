@@ -15,7 +15,8 @@ import { runEngine } from "../src/lib/sim/engine";
 import { estimateCost } from "../src/lib/sim/estimate";
 import { createRunLogger, makeRunDir } from "../src/lib/sim/log";
 import { analyzeRun } from "../src/lib/sim/metrics/analyze";
-import { analyzeBatch } from "../src/lib/sim/metrics/batch";
+import { analyzeBatch, listBatchRunDirs } from "../src/lib/sim/metrics/batch";
+import { loadObserver, runObserver } from "../src/lib/sim/observe";
 import { loadPricing, usd } from "../src/lib/sim/pricing";
 import { makeProviders, requiredProviders } from "../src/lib/sim/providers";
 import { probeClaudeCode } from "../src/lib/sim/providers/claude-code";
@@ -27,7 +28,7 @@ function usage(): never {
       "usage:",
       "  npm run sim -- run <config.yaml> [--provider mock|anthropic] [--duration SEC] [--seed N] [--model ID] [--yes]",
       "  npm run sim -- batch <config.yaml> --n N [--concurrency C] [--seed-start S] [--provider mock|anthropic] [--yes]",
-      "  npm run sim -- analyze <run dir | batch dir>",
+      "  npm run sim -- analyze <run dir | batch dir> [--observe observers/<name>.yaml] [--yes]",
     ].join("\n"),
   );
   process.exit(2);
@@ -39,6 +40,7 @@ type Flags = ConfigOverrides & {
   concurrency: number;
   seedStart: number;
   label?: string;
+  observe?: string;
 };
 
 function parseFlags(rest: string[]): Flags {
@@ -68,6 +70,9 @@ function parseFlags(rest: string[]): Flags {
         break;
       case "--label":
         flags.label = value;
+        break;
+      case "--observe":
+        flags.observe = value;
         break;
       case "--n":
         flags.n = Number(value);
@@ -199,12 +204,45 @@ async function commandBatch(configPath: string, flags: Flags): Promise<void> {
   console.log(`batch dir: ${batchDir}`);
 }
 
-function commandAnalyze(target: string): void {
+async function commandObserve(
+  target: string,
+  observerPath: string,
+  yes: boolean,
+): Promise<void> {
+  const observer = loadObserver(observerPath);
+  await guardCredentials([observer.provider], observer.model);
+  const isBatch = existsSync(join(target, "batch.json"));
+  const runDirs = isBatch
+    ? listBatchRunDirs(target).map((entry) => join(target, entry))
+    : [target];
+  if (observer.provider !== "mock" && !yes) {
+    console.log(
+      `observer "${observer.name}" will read ${runDirs.length} run(s) on ${observer.model} ` +
+        `(~${observer.context_budget_tokens.toLocaleString()} input tokens max); rerun with --yes to spend it`,
+    );
+    process.exit(1);
+  }
+  const result = await runObserver(runDirs, target, observer, providerKeys());
+  console.log(`wrote ${join(target, "observer.json")}`);
+  if (result.report) {
+    console.log(`summary: ${result.report.summary}`);
+    for (const notable of result.report.notable_runs.slice(0, 5))
+      console.log(`  ${notable.score}/10 ${notable.run} — ${notable.why}`);
+  } else {
+    console.log(
+      `observer reply did not parse (${result.parse_error}); raw kept`,
+    );
+  }
+}
+
+async function commandAnalyze(target: string, flags: Flags): Promise<void> {
   if (existsSync(join(target, "batch.json"))) {
     const { runs, agents } = analyzeBatch(target);
     console.log(
       `wrote ${join(target, "batch.csv")} (${runs} rows) and batch_agents.csv (${agents} rows)`,
     );
+    if (flags.observe !== undefined)
+      await commandObserve(target, flags.observe, flags.yes);
     return;
   }
   const metrics = analyzeRun(target);
@@ -214,6 +252,8 @@ function commandAnalyze(target: string): void {
       `gini ${metrics.attention_gini.toFixed(2)}, convergence ${metrics.convergence.toFixed(2)}, ` +
       `meta-talk ${(metrics.meta_talk_rate * 100).toFixed(0)}%`,
   );
+  if (flags.observe !== undefined)
+    await commandObserve(target, flags.observe, flags.yes);
 }
 
 async function main(): Promise<void> {
@@ -222,7 +262,7 @@ async function main(): Promise<void> {
   const flags = parseFlags(rest);
   if (command === "run") await commandRun(target, flags);
   else if (command === "batch") await commandBatch(target, flags);
-  else if (command === "analyze") commandAnalyze(target);
+  else if (command === "analyze") await commandAnalyze(target, flags);
   else usage();
 }
 

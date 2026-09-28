@@ -347,7 +347,9 @@ CLI overrides (`--duration`, `--provider`, `--seed`, `--model`) apply after
   `run_start`, `run_end`.
 - `calls.jsonl`: full request (system + content blocks) and full response for
   every model call. Large; that's fine.
-- `metrics.json`, `judge.json`: written by `analyze`.
+- `metrics.json`: written by `analyze`. `observer.json` (per run dir or batch
+  dir): written by `analyze --observe` — the corpus observer's raw reply plus
+  the parsed report when it parses.
 
 Batches: `runs/batch-<timestamp>-<name>/` with one run dir per seed, plus
 `batch.csv` and `batch_agents.csv` after `analyze`.
@@ -476,6 +478,9 @@ a thin wrapper over the library, not a second product surface.
   (hand-maintained per-model $/Mtok with a "verify before trusting" comment).
   If projected cost exceeds `ARENA_BUDGET_USD` (default 5), refuse unless `--yes`.
 - Record actual usage and cost per run in `events.jsonl` and `batch.csv`.
+- Live batches launch from the web UI too: n× single-run estimate, explicit
+  confirm, credential probe, then games run one at a time in the background
+  while the batch page fills in and offers the observer when done.
 
 Cost shape: input per call grows with the board, so a full-visibility run costs
 roughly O(posts² ) input tokens. `board.visibility.last_n` and prompt caching are
@@ -512,12 +517,20 @@ Per run:
 - repetition: fraction of posts sharing ≥50% of tokens with the previous post
 - meta-talk rate: fraction of posts matching `metrics.meta_talk_patterns`
 
-`--judge` (W5, optional): send the board to a strong model with a fixed rubric
-prompt (also in config) and parse strict JSON:
-`{ game_emerged, emergence_time, rules: [{text, first_stated_by, t}], leader,
-dissent_events: [{t, agent, text}], schism, meta_talk_count, summary }`.
-Write `judge.json` including the judge model id. Judge output is annotation,
-not ground truth, and is never fed back into a run.
+**Corpus observer** (`analyze <target> --observe observers/<name>.yaml`,
+supersedes the old judge sketch): an annotator model reads MANY finished runs
+— full transcripts per room while a token budget lasts, first/last-K excerpts
+beyond it — plus the operator/moderator event log, under a rubric that lives
+in a standalone observer YAML (name, prompt, instruction, model, provider,
+render templates; shared across experiments). It replies in strict JSON
+`{ summary, trends: [..], notable_runs: [{run, score 0-10, why}] }`, written
+to `observer.json` with the raw reply and resolved rubric; a malformed reply
+is stored with `parse_error`, never retried. Observer output is annotation,
+not ground truth, and is never fed back into a run (it runs from artifacts
+after the run closes). The observer is the exception to "analyze makes no
+model calls": plain `analyze`, `metrics.json`, and both CSVs stay
+deterministic and model-free; only `--observe` spends tokens. Mock marker:
+an observer instruction contains the literal `notable_runs`.
 
 ## 14. Experiment catalog
 

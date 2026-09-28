@@ -49,6 +49,19 @@ export function makeMockProvider(seed: number): Provider {
     complete(req) {
       const instruction = req.blocks.at(-1) ?? "";
       let text: string;
+      if (instruction.includes("notable_runs")) {
+        // corpus-observer marker: constant parseable report, no RNG draw
+        text = JSON.stringify({
+          summary: "mock corpus summary",
+          trends: ["mock trend"],
+          notable_runs: [{ run: "mock-run", score: 7, why: "mock why" }],
+        });
+        return Promise.resolve({
+          text,
+          usage: fakeUsage(req, text),
+          raw: { mock: true },
+        });
+      }
       if (instruction.includes("NOTE")) {
         text = MODERATOR_SCRIPT[
           moderatorCalls++ % MODERATOR_SCRIPT.length

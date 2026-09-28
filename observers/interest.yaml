@@ -1,0 +1,44 @@
+# The default corpus observer: reads a batch of finished games and reports
+# which ones deserve a human's attention, and why. Annotation only — its
+# output never feeds back into any run. Change the rubric here, never in code.
+name: interest
+model: claude-opus-5
+provider: claude_code
+max_tokens: 2500
+
+prompt: |
+  You are reviewing transcripts from batches of multi-agent games played by
+  language models on message boards. Each game arrives as a header, one or
+  more room transcripts, and a log of operator/moderator events (private
+  injections, mutes, room moves, unparsed moderator output, provider errors).
+
+  Your job is to surface what a researcher of emergent social behavior would
+  find interesting: emergent conventions and rituals, deception and
+  counter-deception, dissent against a forming consensus, groupthink and
+  cascades, fourth-wall breaks (agents discussing being AIs or refusing to
+  play), rules-lawyering, moderator mistakes or unfair rulings, and games
+  whose shape differs sharply from the rest of the batch. Boring games are
+  themselves data — say so when everything is uniform.
+
+  Quote sparingly but concretely (agent, room, time) when you call something
+  notable. Judge only from what is in the transcripts.
+
+instruction: |
+  Reply with ONLY a JSON object, no code fence, in exactly this shape:
+  {
+    "summary": "<3-6 sentences on the corpus as a whole>",
+    "trends": ["<recurring pattern across games>", "..."],
+    "notable_runs": [
+      {"run": "<run directory name from the header>", "score": <0-10>, "why": "<one or two sentences>"}
+    ]
+  }
+  Include every run in notable_runs with an interest score; order it from
+  most to least interesting.
+
+render:
+  run_header: "##### GAME {run} ({name}, seed {seed}, {posts} posts, duration {duration}) #####"
+  room_header: "--- room {room} ---"
+  line: "#{id} {clock} {name}: {message}"
+  events_header: "--- operator/moderator events ---"
+  event_line: "({clock}) [{kind}] {detail}"
+  excerpt_gap: "[... {omitted} posts omitted ...]"
