@@ -25,10 +25,33 @@
 - M1 trust fixes: watch-mode red banner + home-card badge for failed calls;
   pre-launch claude_code credential probe (the 2026-09-18 failure mode);
   session persistence default ON (ARENA_EPHEMERAL_SESSIONS=1 disables).
-- Next: M2 (live batches from UI + corpus observer), M3 (three-door UI),
-  M4 (verify tooling). Newest Opus id verified: `claude-opus-5`.
+- **M2 accepted (2026-09-28): games on repeat + corpus observer.** Live
+  batches launch from the UI (n× estimate + confirm + probe; games run
+  sequentially in the background; batch page fills in live, auto-refresh).
+  Corpus observer: rubric YAMLs in observers/ (interest.yaml on opus-5 via
+  subscription; mock.yaml free), full-transcript-or-excerpt packing under a
+  token budget, strict-JSON report {summary, trends, notable_runs} written
+  to observer.json, rendered on the batch page (Observe button) and via
+  `analyze --observe`. Acceptance: 3-game live auto-mafia batch
+  ("mafia night one") + opus observer — it surfaced mafia conscientious
+  objection in night rooms across ALL games, public role leaks with zero
+  villager reaction, confabulated-evidence consensus, terminal echo
+  cascades, and cross-game moderator inconsistency on misplaced KILLs.
+- Next: M3 (three-door UI), M4 (verify tooling). Newest Opus id verified:
+  `claude-opus-5`.
 
 ## Decisions
+
+- Observer is corpus-level (operator: "once per thousand games"), not
+  per-run: one call over N runs' transcripts (full while a context budget
+  lasts, first/last-K excerpts after), reporting trends + notable runs.
+  Rubrics are standalone observers/*.yaml so one rubric spans experiments;
+  plain analyze/batch.csv stay model-call-free — only --observe spends.
+  Mock routing marker: instruction contains "notable_runs".
+- Live UI batches run games sequentially (concurrency 1 between games;
+  in-run call concurrency unchanged) to respect subscription pacing;
+  batch.json now records label/provider/model and the dir slug uses the
+  label.
 
 - M1 moderator: engine event kind MODERATOR sorts between POST and WAKE, so
   rulings at t apply before same-instant wakes; runs alone (never in agent
