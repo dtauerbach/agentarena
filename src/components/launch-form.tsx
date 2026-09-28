@@ -176,7 +176,7 @@ export function LaunchForm({
           duration: Number(duration),
           seed: Number(seed),
           speed: speed === "max" ? "max" : Number(speed),
-          confirm,
+          confirm: spendsCredits ? confirm : live,
           overrideBudget,
         }),
       });
@@ -205,14 +205,16 @@ export function LaunchForm({
       )
     : [];
   const overridden = Object.keys(perAgent).length;
+  // subscription runs cost usage, not dollars: the Run button is the confirm.
+  // Real money (API credits) keeps an explicit checkbox.
+  const spendsCredits =
+    chosenProviders.has("anthropic") || chosenProviders.has("openai");
   const blocked =
     live &&
     (!hasKey ||
-      !confirm ||
+      (spendsCredits && !confirm) ||
       missingProviders.length > 0 ||
-      (provider === "anthropic" &&
-        estimate?.overBudget === true &&
-        !overrideBudget));
+      (spendsCredits && estimate?.overBudget === true && !overrideBudget));
 
   const renderOptions = (current: ModelChoice | null) => {
     // a YAML model missing from pricing.yaml still has to be selectable
@@ -380,7 +382,7 @@ export function LaunchForm({
               </Button>
             )}
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="divide-y rounded border">
             {agentNames.map((name) => {
               const hint = privatePrompts[name];
               const choice = players[name] ?? null;
@@ -388,27 +390,19 @@ export function LaunchForm({
                 <label
                   key={name}
                   htmlFor={`player-${name}`}
-                  className="flex flex-col gap-1 rounded border px-2 py-1.5 text-xs"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 px-2 py-1.5 text-xs"
                 >
-                  <span className="flex items-center gap-2">
+                  <span className="flex w-28 items-center gap-2">
                     <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                       style={{ backgroundColor: agentColor(name) }}
                     />
                     <span className="font-medium text-foreground">{name}</span>
-                    {hint && (
-                      <span
-                        className="truncate italic text-muted-foreground"
-                        title={hint}
-                      >
-                        {hint}
-                      </span>
-                    )}
                   </span>
                   <select
                     id={`player-${name}`}
                     aria-label={`model for ${name}`}
-                    className="h-8 rounded-md border bg-transparent px-2 text-xs"
+                    className="h-8 w-64 rounded-md border bg-transparent px-2 text-xs"
                     value={choice ? encode(choice, runProvider) : ""}
                     onChange={(e) =>
                       setPlayers((prev) => ({
@@ -420,24 +414,29 @@ export function LaunchForm({
                     <option value="">default · {model || "from config"}</option>
                     {renderOptions(choice)}
                   </select>
+                  {hint && (
+                    <span
+                      className="min-w-0 flex-1 truncate italic text-muted-foreground"
+                      title={hint}
+                    >
+                      {hint}
+                    </span>
+                  )}
                 </label>
               );
             })}
             {moderator && (
               <label
                 htmlFor="player-moderator"
-                className="flex flex-col gap-1 rounded border border-amber-500/40 px-2 py-1.5 text-xs"
+                className="flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber-500/5 px-2 py-1.5 text-xs"
               >
-                <span className="flex items-center gap-2">
+                <span className="flex w-28 items-center gap-2">
                   <span className="font-medium text-foreground">moderator</span>
-                  <span className="italic text-muted-foreground">
-                    referees; never a player
-                  </span>
                 </span>
                 <select
                   id="player-moderator"
                   aria-label="model for moderator"
-                  className="h-8 rounded-md border bg-transparent px-2 text-xs"
+                  className="h-8 w-64 rounded-md border bg-transparent px-2 text-xs"
                   value={
                     moderatorChoice ? encode(moderatorChoice, runProvider) : ""
                   }
@@ -447,6 +446,9 @@ export function LaunchForm({
                 >
                   {renderOptions(moderatorChoice)}
                 </select>
+                <span className="italic text-muted-foreground">
+                  referees; never a player
+                </span>
               </label>
             )}
           </div>
@@ -501,17 +503,22 @@ export function LaunchForm({
               across agents and conditions; see docs/SPEC.md §10.
             </p>
           )}
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={confirm}
-              onChange={(e) => setConfirm(e.target.checked)}
-            />
-            {chosenProviders.has("anthropic")
-              ? "Spend real API credit on this run"
-              : "Spend Claude subscription usage on this run"}
-          </label>
-          {provider === "anthropic" && estimate?.overBudget && (
+          {spendsCredits ? (
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={confirm}
+                onChange={(e) => setConfirm(e.target.checked)}
+              />
+              Spend real API credit on this run
+            </label>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Run spends subscription usage, not dollars — no confirmation
+              needed.
+            </p>
+          )}
+          {spendsCredits && estimate?.overBudget && (
             <label className="flex items-center gap-2 text-destructive">
               <input
                 type="checkbox"

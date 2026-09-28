@@ -348,7 +348,10 @@ function RoomPanel({
           <h2 className="text-sm font-semibold">{room}</h2>
           {privateRoom ? (
             <span className={`text-xs ${cls.dim}`}>
-              private · only {members.join(", ") || "nobody"} can read this
+              private ·{" "}
+              {members.length === 0
+                ? "closed — no one is in this room right now"
+                : `only ${members.join(", ")} can read this`}
             </span>
           ) : (
             <span className={`text-xs ${cls.dim}`}>

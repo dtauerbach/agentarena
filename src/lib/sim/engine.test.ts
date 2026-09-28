@@ -572,7 +572,12 @@ describe("M1: config-driven moderator", () => {
   it("the moderator view shows every room, the tally block, and its memory", async () => {
     const config = moderated({
       tallies: [
-        { name: "vote", room: "main", pattern: "^\\s*VOTE\\s+([A-Za-z]+)" },
+        {
+          name: "vote",
+          room: "main",
+          pattern: "^\\s*VOTE\\s+([A-Za-z]+)",
+          latest: false,
+        },
       ],
     });
     const collected = await run(config);
@@ -590,7 +595,12 @@ describe("M1: config-driven moderator", () => {
   it("tallies count structured moves mechanically, per window", async () => {
     const config = moderated({
       tallies: [
-        { name: "vote", room: "main", pattern: "^\\s*VOTE\\s+([A-Za-z]+)" },
+        {
+          name: "vote",
+          room: "main",
+          pattern: "^\\s*VOTE\\s+([A-Za-z]+)",
+          latest: false,
+        },
       ],
     });
     // scripted agents: everyone posts "VOTE C" on wake; moderator via mock
@@ -633,6 +643,57 @@ describe("M1: config-driven moderator", () => {
         c.request.blocks.some((b) => b.includes("vote in main: C ")),
     );
     expect(withVotes).toBeDefined();
+  });
+
+  it("a windowed, latest-per-player tally reads like a vote", async () => {
+    const config = moderated({
+      tallies: [
+        {
+          name: "vote",
+          room: "main",
+          pattern: "^\\s*VOTE\\s+([A-Za-z]+)",
+          window: 600,
+          latest: true,
+        },
+      ],
+    });
+    const voter = {
+      complete: (req: { blocks: string[] }) => {
+        const instruction = req.blocks.at(-1) ?? "";
+        const text = instruction.includes("NOTE")
+          ? "NOTE counting"
+          : "VOTE C\nchanged my mind\nVOTE D";
+        return Promise.resolve({
+          text,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        });
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, voter, {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const tallies = collected.events.filter((e) => e.kind === "tally");
+    expect(tallies.length).toBeGreaterThan(0);
+    for (const tally of tallies) {
+      const counts = tally.counts as Record<string, number>;
+      // the last VOTE line in a post wins, one vote per player
+      expect(counts.C).toBeUndefined();
+      const voters = new Set(
+        collected.posts
+          .filter((p) => p.t_land > tally.t - 600 && p.t_land <= tally.t)
+          .map((p) => p.agent),
+      );
+      expect(counts.D ?? 0).toBe(voters.size);
+    }
   });
 
   it("hallucinated targets are logged as unparsed, not applied", async () => {

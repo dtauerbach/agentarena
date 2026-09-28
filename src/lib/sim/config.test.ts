@@ -54,7 +54,7 @@ describe("config loading", () => {
   });
 
   it("launch-time per-player and moderator model choices merge over the YAML", () => {
-    const config = loadConfig("experiments/mafia/auto.yaml", {
+    const config = loadConfig("experiments/mafia/classic.yaml", {
       provider: "anthropic",
       perAgent: {
         Bob: { provider: "claude_code", name: "claude-opus-5" },
@@ -72,6 +72,15 @@ describe("config loading", () => {
     expect(() =>
       loadConfig(BASE, { moderator: { name: "claude-sonnet-5" } }),
     ).toThrow(/no moderator/);
+  });
+
+  it("a null in a child config removes the parent's block", () => {
+    const manual = loadConfig("experiments/mafia/manual.yaml");
+    expect(manual.moderator).toBeUndefined();
+    expect(manual.rooms.night?.members).toEqual(["Bob", "Eve"]);
+    const classic = loadConfig("experiments/mafia/classic.yaml");
+    expect(classic.moderator?.tallies.map((t) => t.window)).toEqual([900, 600]);
+    expect(classic.rooms.night?.members).toEqual([]);
   });
 
   it("viewer.moves must name a known room and a valid pattern", () => {

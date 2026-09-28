@@ -3,14 +3,11 @@ import { z } from "zod";
 import { env } from "@/lib/env";
 import { experimentPath } from "@/lib/experiments";
 import { launchRun } from "@/lib/run-manager";
-import { probeClaudeCode } from "@/lib/sim/providers/claude-code";
-import {
-  firstClaudeCodeModel,
-  requiredProviders,
-} from "@/lib/sim/providers";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
 import { loadPricing } from "@/lib/sim/pricing";
+import { firstClaudeCodeModel, requiredProviders } from "@/lib/sim/providers";
+import { probeClaudeCode } from "@/lib/sim/providers/claude-code";
 
 const modelChoiceSchema = z.object({
   provider: z.enum(["claude_code", "anthropic", "openai"]).optional(),
@@ -64,9 +61,15 @@ export async function POST(request: Request): Promise<NextResponse> {
         loadPricing(),
         env.ARENA_BUDGET_USD,
       );
-      if (!confirm)
+      const spendsCredits = requiredProviders(config).some(
+        (name) => name === "anthropic" || name === "openai",
+      );
+      if (spendsCredits && !confirm)
         return NextResponse.json(
-          { error: "live runs need explicit confirmation", estimate },
+          {
+            error: "runs that spend API credits need explicit confirmation",
+            estimate,
+          },
           { status: 400 },
         );
       // trust quick-fix: catch an expired Claude Code login before the run
@@ -82,7 +85,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       }
       // the dollar budget only guards real API billing; claude_code draws on
       // the subscription's usage window instead
-      if (provider === "anthropic" && estimate.overBudget && !overrideBudget)
+      if (spendsCredits && estimate.overBudget && !overrideBudget)
         return NextResponse.json(
           {
             error: `estimate $${estimate.usd?.toFixed(2)} exceeds ARENA_BUDGET_USD ${estimate.budgetUsd}`,

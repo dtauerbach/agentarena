@@ -12,7 +12,7 @@ let runDir: string;
 
 beforeAll(async () => {
   const base = mkdtempSync(join(tmpdir(), "arena-verify-"));
-  const config = loadConfig("experiments/mafia/auto.yaml", {
+  const config = loadConfig("experiments/mafia/classic.yaml", {
     provider: "mock",
     duration: 1200,
   });

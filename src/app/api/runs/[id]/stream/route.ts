@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server";
+import type { StreamMsg } from "@/lib/run-manager";
 import {
   dropReplayPacer,
   getLiveSession,
@@ -6,9 +7,8 @@ import {
   readRunTimeline,
   registerReplayPacer,
 } from "@/lib/run-manager";
-import type { StreamMsg } from "@/lib/run-manager";
-import type { Speed } from "@/lib/sim/pacer";
 import { runDirFromId } from "@/lib/runs-fs";
+import type { Speed } from "@/lib/sim/pacer";
 
 function sse(msg: StreamMsg): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(msg)}\n\n`);
@@ -36,7 +36,12 @@ export async function GET(
         }
       };
       if (live) {
-        send({ type: "hello", meta: live.meta, mode: "live", state: live.pacer.state() });
+        send({
+          type: "hello",
+          meta: live.meta,
+          mode: "live",
+          state: live.pacer.state(),
+        });
         for (const msg of live.buffer) send(msg);
         if (live.status !== "running") {
           controller.close();
@@ -75,7 +80,12 @@ export async function GET(
         cancelled = true;
         dropReplayPacer(token);
       };
-      send({ type: "hello", meta: readRunMeta(dir), mode: "replay", state: pacer.state() });
+      send({
+        type: "hello",
+        meta: readRunMeta(dir),
+        mode: "replay",
+        state: pacer.state(),
+      });
       void (async () => {
         for (const { t, msg } of timeline) {
           await pacer.waitUntil(t);

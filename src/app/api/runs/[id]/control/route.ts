@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getLiveSession, getReplayPacer } from "@/lib/run-manager";
 
@@ -18,8 +18,10 @@ export async function POST(
   if (!parsed.success)
     return NextResponse.json({ error: "bad request" }, { status: 400 });
   const { action, speed, token } = parsed.data;
-  const pacer = getLiveSession(id)?.pacer ?? (token ? getReplayPacer(token) : undefined);
-  if (!pacer) return NextResponse.json({ error: "no active session" }, { status: 404 });
+  const pacer =
+    getLiveSession(id)?.pacer ?? (token ? getReplayPacer(token) : undefined);
+  if (!pacer)
+    return NextResponse.json({ error: "no active session" }, { status: 404 });
   if (action === "speed" && speed !== undefined) pacer.setSpeed(speed);
   if (action === "pause") pacer.pause();
   if (action === "resume") pacer.resume();

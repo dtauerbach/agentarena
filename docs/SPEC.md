@@ -271,7 +271,7 @@ them is visible to other agents.
 The zod schema in `src/config.ts` is authoritative. This is the shape:
 
 ```yaml
-extends: ./base.yaml            # optional; shallow merge, one level
+extends: ./base.yaml            # optional; shallow merge, one level; `key: null` unsets
 name: A_baseline
 seed: 1                         # harness RNG only
 duration: 7200                  # simulated seconds
@@ -311,9 +311,10 @@ moderator:                      # optional config-driven referee (see §11a)
   tally_header: ... / tally_line: ...       # required when tallies set
   model: claude-opus-5          # provider defaults to model.provider
   cadence: 300                  # wakes every N sim seconds, alone
-  tallies: []                   # {name, room, pattern} — mechanical counts of
-                                # structured moves (e.g. "^VOTE (\w+)") since
-                                # its last wake, rendered into its view
+  tallies: []                   # {name, room, pattern, window?, latest?} — mechanical
+                                # counts of structured moves (e.g. "^VOTE (\w+)")
+                                # since its last wake (or the last `window` seconds);
+                                # `latest: true` = one move per player, latest wins
 rooms:                          # default: one room holding everyone
   main: { members: all }        # members: all | [names]; optional prompt: "..."
 render: {...}                   # inherited from base
@@ -418,8 +419,9 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   remain plain files; the UI is an editor over them, so everything stays
   git-diffable and rule 5 keeps holding.
 - **Runs**: launch from a config page with overrides (seed, duration,
-  provider); a pre-run cost estimate (§12) and an explicit confirm step for
-  live runs. Runs execute in-process on the server, write their run directory
+  provider, per-player models); a pre-run cost estimate (§12) for every live
+  run and an explicit confirm step for runs that spend API credits
+  (subscription-billed runs run on click). Runs execute in-process on the server, write their run directory
   as they go, and stream events over SSE.
 - **Moderator, automated** (§11a): a run may configure a moderator block —
   a model that wakes alone every `cadence` sim seconds, sees every room

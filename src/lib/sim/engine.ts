@@ -551,16 +551,24 @@ export async function runEngine(
         const tallyLines: string[] = [mod.tally_header as string];
         for (const tally of mod.tallies) {
           const counts = new Map<string, number>();
+          const since =
+            tally.window !== undefined
+              ? event.time - tally.window
+              : lastModeratorTime;
           const posts = (roomPosts.get(tally.room) ?? []).filter(
-            (p) => p.t_land > lastModeratorTime && p.t_land <= event.time,
+            (p) => p.t_land > since && p.t_land <= event.time,
           );
           const pattern = new RegExp(tally.pattern, "gim");
+          const latestByAgent = new Map<string, string>();
           for (const post of posts)
             for (const match of post.message.matchAll(pattern)) {
               const captured = match[1];
-              if (captured !== undefined)
-                counts.set(captured, (counts.get(captured) ?? 0) + 1);
+              if (captured === undefined) continue;
+              if (tally.latest) latestByAgent.set(post.agent, captured);
+              else counts.set(captured, (counts.get(captured) ?? 0) + 1);
             }
+          for (const captured of latestByAgent.values())
+            counts.set(captured, (counts.get(captured) ?? 0) + 1);
           const rendered =
             [...counts.entries()]
               .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))

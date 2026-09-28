@@ -77,14 +77,24 @@ test("live providers require an estimate and explicit confirmation", async ({
   await expect(page.getByText(/budget \$/)).toBeVisible();
   await expect(run).toBeDisabled();
 
-  // claude_code: subscription wording and purity note, blocked until confirmed
+  // claude_code: subscription wording and purity note; usage, not dollars,
+  // so the Run button itself is the confirm (credentials exist here)
   await page.selectOption("#launch-provider", "claude_code");
   await expect(page.getByText(/subscription's usage window/)).toBeVisible();
   await expect(page.getByText(/Purity note/)).toBeVisible();
-  await expect(run).toBeDisabled();
-  await page.getByLabel(/Spend Claude subscription usage/).check();
-  // credentials exist in this environment, so confirming unblocks the launch
+  await expect(page.getByText(/no confirmation needed/)).toBeVisible();
   await expect(run).toBeEnabled();
+  // a subscription run without the confirm flag is accepted by the API only
+  // when no API-credit provider is involved
+  const refused = await page.request.post("/api/runs", {
+    data: {
+      experiment: "nogame",
+      file: "A_baseline.yaml",
+      provider: "anthropic",
+      duration: 600,
+    },
+  });
+  expect(refused.status()).toBe(400);
 });
 
 test("yaml editor validates, saves, and duplicates", async ({ page }) => {
@@ -244,7 +254,8 @@ test("mafia: per-player model pickers, two-room game view, move badges", async (
   page,
 }) => {
   await page.goto("/experiments/mafia/classic.yaml");
-  // players appear only for live providers; models are grouped by billing
+  // players appear only for live providers; models are grouped by billing;
+  // the referee gets its own row
   await expect(page.locator("#player-Bob")).toHaveCount(0);
   await page.selectOption("#launch-provider", "claude_code");
   await expect(page.locator("#player-Bob")).toBeVisible();
@@ -260,12 +271,14 @@ test("mafia: per-player model pickers, two-room game view, move badges", async (
     timeout: 10_000,
   });
   await expect(page.getByText(/1 overridden/)).toBeVisible();
+  await expect(page.locator("#player-moderator")).toBeVisible();
 
-  // a mock game: the public room and the private night room are separate panels
+  // a mock game (human-moderated variant: the night room is seated from the
+  // start): the public room and the private night room are separate panels
   const response = await page.request.post("/api/runs", {
     data: {
       experiment: "mafia",
-      file: "classic.yaml",
+      file: "manual.yaml",
       provider: "mock",
       duration: 3600,
       speed: "max",

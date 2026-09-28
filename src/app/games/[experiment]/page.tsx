@@ -39,8 +39,9 @@ const NOGAME_BLURBS: Record<string, string> = {
   "T_turns.yaml": "Everyone posts every tick — simultaneous rounds.",
   "U_continuous.yaml": "Continuous time instead of ticks.",
   "W_connected.yaml": "Agents can search the web.",
-  "classic.yaml": "You moderate: resolve votes and kills from the run page.",
-  "auto.yaml": "Referees itself: an opus moderator announces, counts, rules.",
+  "classic.yaml":
+    "Seven players, two mafia, an opus referee that announces, counts, and rules.",
+  "manual.yaml": "You moderate: resolve votes and kills from the run page.",
 };
 
 export default async function GamePage({

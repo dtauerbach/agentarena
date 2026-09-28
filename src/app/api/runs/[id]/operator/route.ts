@@ -1,10 +1,14 @@
-import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getLiveSession } from "@/lib/run-manager";
 
 const commandSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("inject"), agent: z.string(), text: z.string().min(1).max(2000) }),
+  z.object({
+    kind: z.literal("inject"),
+    agent: z.string(),
+    text: z.string().min(1).max(2000),
+  }),
   z.object({ kind: z.literal("mute"), agent: z.string() }),
   z.object({ kind: z.literal("unmute"), agent: z.string() }),
   z.object({ kind: z.literal("join"), agent: z.string(), room: z.string() }),

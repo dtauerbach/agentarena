@@ -1,7 +1,7 @@
 # A blank game: one room, plain templates, a placeholder premise. Replace
 # description and common_prompt with your game, add private notes and
 # reveals in the designer, and optionally a moderator block (see
-# experiments/mafia/auto.yaml for a worked example).
+# experiments/mafia/classic.yaml for a worked example).
 name: base
 description: >-
   A blank game. Write the shared premise in the universal prompt; add private

@@ -15,7 +15,7 @@ const mockObserver = { ...observer, provider: "mock" as const };
 beforeAll(async () => {
   const base = mkdtempSync(join(tmpdir(), "arena-observe-"));
   batchDir = await runBatch({
-    configPath: "experiments/mafia/auto.yaml",
+    configPath: "experiments/mafia/classic.yaml",
     overrides: { provider: "mock", duration: 1200 },
     n: 2,
     seedStart: 1,

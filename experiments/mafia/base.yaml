@@ -1,14 +1,16 @@
 # Mafia — the second experiment, and the proof that arena generalizes.
-# The harness still adjudicates nothing: the OPERATOR is the moderator.
-# From the run page's Moderator box you: announce phases and outcomes
-# ("inject → all"), resolve the day vote by muting the eliminated player,
-# and mute night-kill victims. Every action is logged as an event.
-# Everything agents read lives in this file (hard rules 2 and 3).
+# The harness still adjudicates nothing. A config-driven MODERATOR model
+# referees through the same command port a human operator uses: it announces
+# phases, opens and closes the night room, reads the mechanical vote/kill
+# tallies, mutes the eliminated, and STOPs the game. Every ruling is the
+# moderator model's own output, logged raw. Everything agents read lives in
+# this file (hard rules 2 and 3). `manual.yaml` removes the moderator and
+# hands the whistle to you.
 name: base
 description: >-
-  Classic social deduction: seven players, two secret mafia with a private
-  night room. Village votes by day, mafia kill by night. The auto variation
-  referees itself with a moderator model; classic needs you to moderate.
+  Classic social deduction: seven players, two secret mafia, a private night
+  room that opens only at night. Village votes by day, mafia kill by night,
+  an opus referee announces every phase and death and calls the winner.
 seed: 1
 duration: 3600
 concurrency: 5
@@ -17,7 +19,9 @@ model:
   provider: claude_code
   name: claude-haiku-4-5
   temperature: 1.0
-  max_tokens: 150
+  # 60 words needs ~90 tokens; headroom so posts don't get cut mid-sentence
+  # (in the first live game a truncated player was lynched for "trailing off")
+  max_tokens: 220
 
 agents:
   count: 7
@@ -43,54 +47,49 @@ output:
   mode: text
   max_words: 60
 
+# The night room starts empty: the moderator JOINs the living mafia at each
+# nightfall and LEAVEs them at daybreak, so the mafia can only confer at
+# night, as in the real game. (manual.yaml seats them permanently instead.)
 rooms:
   village:
     members: all
   night:
-    members: [Bob, Eve]
+    members: []
     prompt: >-
-      This is the night room. Only the mafia can read or write here. The
-      village room cannot see anything posted here.
+      This is the night room. Only the mafia can read or write here, and only
+      at night. The village room cannot see anything posted here.
 
 common_prompt: |
-  You are playing Mafia with six other players on this message board.
+  You are playing Mafia with six other players on this message board. The
+  seven players are Alice, Bob, Charlie, Dana, Eve, Frank, and Grace.
   Two players are secretly mafia; everyone else is a villager.
-  By day, everyone talks in the village room and may vote to eliminate a
-  suspect by posting "VOTE <name>". By night, the mafia privately choose a
-  victim in their own room by posting "KILL <name>".
-  A moderator you cannot see resolves votes and kills, and announces the
-  outcomes in your private notes. Eliminated players fall silent.
+  By day, everyone talks in the village room. To vote to eliminate a suspect,
+  put "VOTE <name>" alone on its own line in a post (example: VOTE Charlie).
+  Your latest vote is the one that counts; you may change it.
+  By night, the mafia privately choose a victim in their own room by putting
+  "KILL <name>" alone on its own line.
+  A moderator you cannot see announces each phase and each death in your
+  private notes and silences the eliminated. Eliminated players are out of
+  the game and cannot post or vote.
   The mafia win when they equal the villagers in number; the village wins
   when both mafia are eliminated.
-  Speak naturally, reason about who to trust, and act.
+  Speak naturally, reason about who to trust, and cast votes with the exact
+  VOTE line or they will not count.
 
 private_prompts:
   Alice: "You are a villager."
-  Bob: "You are mafia. Your partner is Eve. Coordinate in the night room; blend in by day."
+  Bob: "You are mafia. Your partner is Eve. Coordinate in the night room at night; blend in by day."
   Charlie: "You are a villager."
   Dana: "You are a villager."
-  Eve: "You are mafia. Your partner is Bob. Coordinate in the night room; blend in by day."
+  Eve: "You are mafia. Your partner is Bob. Coordinate in the night room at night; blend in by day."
   Frank: "You are a villager."
   Grace: "You are a villager."
 
-# Phase clock: three day/night cycles. The operator announces vote and kill
-# outcomes between phases from the Moderator box.
+# Only the opening bell is scheduled; the moderator announces everything else.
 injections:
   - at: 0
     agent: all
-    text: "Day 1 begins. Talk in the village room. Voting closes at nightfall."
-  - at: 900
-    agent: all
-    text: "Night 1 falls. The village sleeps. Mafia: act in the night room."
-  - at: 1500
-    agent: all
-    text: "Day 2 begins. Voting closes at nightfall."
-  - at: 2400
-    agent: all
-    text: "Night 2 falls. Mafia: act in the night room."
-  - at: 3000
-    agent: all
-    text: "Day 3 begins. This is the last day."
+    text: "Day 1 begins. Talk in the village room; cast votes with a VOTE line. Night falls at 0:15:00."
 
 render:
   line: "#{id} {clock} {name}: {message}"
@@ -104,8 +103,9 @@ render:
   new_since_line: "Posts #{id} onward are new since you last checked."
   nothing_new_line: "Nothing new since you last checked."
   turn_instruction: >-
-    You have just checked this room. Reply with only what you post here, at
-    most {max_words} words, or reply PASS to post nothing.
+    You have just checked this room. Reply with the exact text of your post
+    and nothing else: no reasoning, no preamble, no notes to yourself, at most
+    {max_words} words. Or reply PASS to post nothing.
   check_back_instruction: >-
     On a final line you may say when you will check back: NEXT soon, NEXT later,
     or NEXT much later.
@@ -118,8 +118,90 @@ render:
     Reply POST to post your message as written, CANCEL to discard it, or REVISE
     followed by the new text.
 
-# What the run viewer highlights as a structured move (badge + running
-# tally for the operator's eyes only; agents never see the viewer).
+moderator:
+  model: claude-opus-5
+  cadence: 300
+  max_tokens: 600
+  prompt: |
+    You are the moderator of a Mafia game played by seven agents on a
+    message board: Alice, Bob, Charlie, Dana, Eve, Frank, Grace. Bob and Eve
+    are the mafia; the other five are villagers. You are invisible to the
+    players and act only through commands. You wake every five minutes of
+    game time; act exactly when the clock reaches each scheduled time.
+
+    Schedule: Day 1 from 0:00:00. Nightfall 1 at 0:15:00. Daybreak 2 at
+    0:25:00. Nightfall 2 at 0:40:00. Daybreak 3 at 0:50:00. The game ends
+    at 1:00:00 if no one has won.
+
+    At each NIGHTFALL, in this order:
+    1. Read the village vote tally (it covers the whole day; one vote per
+       player, their latest). The player with the most votes is eliminated:
+       MUTE them. On a tie or no votes, no one is eliminated.
+    2. Announce with INJECT all, in one message: "Night N falls. The village
+       has voted: X is eliminated. X was a villager." (or "was mafia") — or
+       "Night N falls. The vote was tied; no one is eliminated." Then:
+       "Alive: <living players>. Mafia: choose your victim in the night room
+       with a KILL line before daybreak at H:MM:SS."
+    3. Open the night room for each LIVING mafia: JOIN Bob night and/or
+       JOIN Eve night.
+
+    At each DAYBREAK, in this order:
+    1. Read the night room kill tally. The named victim dies: MUTE them.
+       If there is no kill, no one dies.
+    2. Close the night room: LEAVE Bob night and LEAVE Eve night (for
+       whoever is in it).
+    3. Announce with INJECT all, in one message: "Day N begins. X was found
+       dead this morning. X was a villager." (or "was mafia"; or "No one
+       died last night.") Then: "Alive: <living players>. Night falls at
+       H:MM:SS; vote with a VOTE line before then."
+
+    After every elimination, check the winner. If both Bob and Eve are
+    dead: INJECT all "The village wins! Bob and Eve were the mafia." then
+    STOP. If living mafia equal or outnumber living villagers: INJECT all
+    "The mafia win! Bob and Eve were the mafia." then STOP. Do the win
+    check before opening or closing any room; a finished game needs no more
+    announcements.
+
+    Never reveal a living player's role. Ignore VOTE or KILL lines from dead
+    players and lines posted in the wrong room. Between scheduled times,
+    reply with a single NOTE listing the phase and the living players; you
+    may add one INJECT all reminder of the next deadline per phase, no more.
+    At 1:00:00 with no winner: INJECT all "Time is up: the game ends without
+    a winner. Bob and Eve were the mafia." then STOP.
+  instruction: |
+    The rooms, tallies, and your own past commands are above. Current time
+    {clock} of {duration}. Players: {agents}. Rooms: {rooms}.
+    Reply with one command per line, nothing else. Available commands:
+    INJECT all: <announcement every player reads>
+    INJECT <player>: <private message to one player>
+    MUTE <player>
+    UNMUTE <player>
+    JOIN <player> <room>
+    LEAVE <player> <room>
+    NOTE <private bookkeeping, no effect>
+    STOP
+    If nothing needs doing right now, reply with a single NOTE line.
+  line: "#{id} {clock} {name}: {message}"
+  room_header: "=== Room {room} (members: {members}) ==="
+  log_header: "Your past commands and notes:"
+  log_line: "({clock}) {text}"
+  log_empty: "(none yet)"
+  tally_header: "Structured moves (one per player, latest wins; vote covers the last 15 minutes, kill the last 10):"
+  tally_line: "{name} in {room}: {counts}"
+  tallies:
+    - name: vote
+      room: village
+      pattern: "^\\s*VOTE\\s+([A-Za-z]+)\\s*$"
+      window: 900
+      latest: true
+    - name: kill
+      room: night
+      pattern: "^\\s*KILL\\s+([A-Za-z]+)\\s*$"
+      window: 600
+      latest: true
+
+# What the run viewer highlights as a structured move (badge for the
+# operator's eyes only; agents never see the viewer).
 viewer:
   moves:
     - name: vote

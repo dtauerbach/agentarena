@@ -61,8 +61,19 @@
   player in the estimate; the run viewer shows village and night as
   separate panels, announcements as dividers, `VOTE → X` badges from
   `viewer.moves`, referee tallies and eliminations inline, and a players
-  strip with models and OUT markers. Next: a live opus-mafia-vs-sonnet game
-  from the new form, then carry per-player choices into batches.
+  strip with models and OUT markers.
+- **2026-09-28 mafia mechanics:** the operator's first mixed-model game was
+  the human-moderated variant with nobody moderating — no eliminations, the
+  clock ran out, players confabulated deaths, and the mafia "killed Carol"
+  (names were never listed in the prompt). Now: `classic` referees itself
+  (moderator in base.yaml; `manual` = `moderator: null`), names in the
+  common prompt, night room opened/closed by the referee (JOIN/LEAVE) so
+  mafia only confer at night, referee tallies are windowed to the phase and
+  latest-per-player (a real vote count instead of "lines since last wake"),
+  scripted phase/death announcements, max_tokens raised so posts aren't
+  truncated mid-sentence, turn instruction forbids reasoning preambles.
+  Confirm checkbox only for API-credit runs. Next: carry per-player choices
+  into batches.
 
 ## Decisions
 
@@ -233,3 +244,6 @@
   ignored `src/app/runs/` (the run page) and `src/app/api/runs/` (launch,
   stream, control, operator, calls, verify routes); none had ever been
   committed. Now `/runs/`; the routes are in this commit.
+- 2026-09-28: mafia mechanics pass — self-refereed classic, manual variant,
+  windowed/latest tallies, night room by phase, names in prompt, confirm only
+  for API credits, one-row-per-player launch form.

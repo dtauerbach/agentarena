@@ -175,6 +175,11 @@ export const configSchema = z.strictObject({
             name: z.string().min(1),
             room: z.string(),
             pattern: z.string().min(1),
+            // seconds of posts to count (default: since the last wake); a
+            // phase-length window lets a referee read a whole day's votes
+            window: z.number().positive().optional(),
+            // one move per player, the latest line wins (a vote, not a count)
+            latest: z.boolean().default(false),
           }),
         )
         .default([]),
@@ -228,11 +233,16 @@ export type ConfigOverrides = {
 type RawDoc = Record<string, unknown>;
 
 // extends: shallow merge, one level deep — a child's top-level object merges
-// key-by-key into the parent's; anything deeper replaces wholesale.
+// key-by-key into the parent's; anything deeper replaces wholesale. A null
+// in the child removes the parent's key (e.g. `moderator: null`).
 function mergeOneLevel(parent: RawDoc, child: RawDoc): RawDoc {
   const out: RawDoc = { ...parent };
   for (const [key, value] of Object.entries(child)) {
     const prev = out[key];
+    if (value === null) {
+      delete out[key];
+      continue;
+    }
     if (
       value !== null &&
       prev !== null &&

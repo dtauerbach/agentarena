@@ -71,8 +71,9 @@ They override convenience, and they override whatever the agents "seem to want".
    plain files (YAML in, JSONL out); the web app edits and reads them, it is
    not a store.
 6. **No live API calls in `npm test`.** All automated tests use the `mock`
-   provider. The web UI requires an explicit confirm step, with a cost
-   estimate, before any live run.
+   provider. The web UI shows a cost estimate before any live run and
+   requires an explicit confirm step before any run that spends API
+   credits; subscription-billed runs (claude_code) run on click.
 
 ## Stack
 
@@ -144,5 +145,13 @@ Keep this list current. `npm run check` must always pass.
   Engine stays a pure library; headless script kept for tests and batches.
 - 2026-09-10: harness renamed arena; nogame is experiment #1 under
   `experiments/nogame/`; docs split accordingly.
+
+- 2026-09-28: the explicit confirm checkbox is only for runs that spend API
+  credits (operator request: the fear is a $1K API click, not subscription
+  usage). Estimate still shown for every live run.
+- 2026-09-28: mafia referees itself by default (`classic`); `manual` is the
+  human-moderated variant. Night room opens only at night via moderator
+  JOIN/LEAVE. Player names are listed in the common prompt (the mafia had
+  been killing "Carol").
 
 @AGENTS.md
