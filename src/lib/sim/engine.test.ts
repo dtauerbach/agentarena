@@ -468,3 +468,239 @@ describe("per-agent providers", () => {
     for (const post of otherPosts) expect(post.message).toBe("FROM-MODEL-Y");
   });
 });
+
+describe("M1: config-driven moderator", () => {
+  const MOD_TEMPLATES = {
+    prompt: "You are the referee.",
+    instruction:
+      "Reply with commands, one per line: INJECT, MUTE, UNMUTE, NOTE, STOP.",
+    line: "#{id} {clock} {name}: {message}",
+    room_header: "=== Room {room} (members: {members}) ===",
+    log_header: "Your past commands:",
+    log_line: "({clock}) {text}",
+    log_empty: "(none yet)",
+    tally_header: "Moves since last check:",
+    tally_line: "{name} in {room}: {counts}",
+  };
+
+  function moderated(
+    overrides: Partial<
+      NonNullable<ReturnType<typeof loadConfig>["moderator"]>
+    > = {},
+    duration = 900,
+  ) {
+    const config = loadConfig("experiments/nogame/A_baseline.yaml", {
+      provider: "mock",
+      duration,
+    });
+    return {
+      ...config,
+      moderator: {
+        ...MOD_TEMPLATES,
+        model: "mock-model",
+        cadence: 300,
+        temperature: 0,
+        max_tokens: 400,
+        tallies: [],
+        ...overrides,
+      },
+    };
+  }
+
+  async function run(config: ReturnType<typeof moderated>) {
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, makeMockProvider(config.seed), {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    return collected;
+  }
+
+  it("wakes at every cadence boundary and logs raw replies", async () => {
+    const collected = await run(moderated());
+    const wakes = collected.events.filter((e) => e.kind === "moderator_wake");
+    expect(wakes.map((e) => e.t)).toEqual([300, 600, 900]);
+    for (const wake of wakes) expect(typeof wake.raw).toBe("string");
+    const calls = collected.calls.filter((c) => c.kind === "moderator");
+    expect(calls).toHaveLength(3);
+    // the moderator call uses its own system prompt, not the agents' one
+    expect(calls[0]?.request.system).toBe("You are the referee.");
+  });
+
+  it("mock script drives note, broadcast inject, mute, unparsed, unmute", async () => {
+    // duration 1500 → 5 wakes → the full mock script fires once
+    const collected = await run(moderated({}, 1500));
+    expect(
+      collected.events.filter((e) => e.kind === "moderator_note").length,
+    ).toBeGreaterThan(0);
+    const injects = collected.events.filter(
+      (e) => e.kind === "inject" && e.moderator === true,
+    );
+    expect(injects).toHaveLength(10); // INJECT all → one per agent
+    const mutes = collected.events.filter(
+      (e) => e.kind === "operator_mute" && e.moderator === true,
+    );
+    expect(mutes).toHaveLength(1);
+    expect(mutes[0]?.agent).toBe("B");
+    const unparsed = collected.events.filter(
+      (e) => e.kind === "moderator_unparsed",
+    );
+    expect(unparsed.length).toBeGreaterThan(0);
+    expect(unparsed[0]?.line).toContain("FROBNICATE");
+  });
+
+  it("a muted agent stays silent until the scripted unmute", async () => {
+    // script: MUTE B at wake 3 (t=900), UNMUTE B at wake 5 (t=1500)
+    const collected = await run(moderated({}, 1800));
+    const muteT = collected.events.find((e) => e.kind === "operator_mute")
+      ?.t as number;
+    const unmuteT = collected.events.find((e) => e.kind === "operator_unmute")
+      ?.t as number;
+    expect(muteT).toBe(900);
+    expect(unmuteT).toBe(1500);
+    const bWakesMuted = collected.events.filter(
+      (e) =>
+        e.kind === "wake" &&
+        e.agent === "B" &&
+        (e.t as number) > muteT &&
+        (e.t as number) <= unmuteT,
+    );
+    expect(bWakesMuted).toHaveLength(0);
+  });
+
+  it("the moderator view shows every room, the tally block, and its memory", async () => {
+    const config = moderated({
+      tallies: [
+        { name: "vote", room: "main", pattern: "^\\s*VOTE\\s+([A-Za-z]+)" },
+      ],
+    });
+    const collected = await run(config);
+    const calls = collected.calls.filter((c) => c.kind === "moderator");
+    const first = calls[0]?.request.blocks.join("\n\n") ?? "";
+    expect(first).toContain("=== Room main");
+    expect(first).toContain("Moves since last check:");
+    expect(first).toContain("(none yet)");
+    // by the second wake, the first wake's NOTE is in its memory
+    const second = calls[1]?.request.blocks.join("\n\n") ?? "";
+    expect(second).toContain("Your past commands:");
+    expect(second).toContain("NOTE all quiet so far");
+  });
+
+  it("tallies count structured moves mechanically, per window", async () => {
+    const config = moderated({
+      tallies: [
+        { name: "vote", room: "main", pattern: "^\\s*VOTE\\s+([A-Za-z]+)" },
+      ],
+    });
+    // scripted agents: everyone posts "VOTE C" on wake; moderator via mock
+    const voter = {
+      complete: (req: { blocks: string[] }) => {
+        const instruction = req.blocks.at(-1) ?? "";
+        const text = instruction.includes("NOTE")
+          ? "NOTE counting"
+          : "I suspect C.\nVOTE C";
+        return Promise.resolve({
+          text,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        });
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, voter, {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const tallies = collected.events.filter((e) => e.kind === "tally");
+    expect(tallies.length).toBeGreaterThan(0);
+    const total = tallies.reduce(
+      (n, e) => n + ((e.counts as Record<string, number>).C ?? 0),
+      0,
+    );
+    const posts = collected.posts.length;
+    expect(total).toBe(posts); // every landed post carried one VOTE C, each counted once
+    // rendered into the moderator's view
+    const withVotes = collected.calls.find(
+      (c) =>
+        c.kind === "moderator" &&
+        c.request.blocks.some((b) => b.includes("vote in main: C ")),
+    );
+    expect(withVotes).toBeDefined();
+  });
+
+  it("hallucinated targets are logged as unparsed, not applied", async () => {
+    const config = moderated();
+    const hallucinator = {
+      complete: (req: { blocks: string[] }) => {
+        const instruction = req.blocks.at(-1) ?? "";
+        const text = instruction.includes("NOTE") ? "MUTE Zeus" : "PASS";
+        return Promise.resolve({
+          text,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        });
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, hallucinator, {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const unparsed = collected.events.filter(
+      (e) => e.kind === "moderator_unparsed" && e.reason === "unknown agent",
+    );
+    expect(unparsed.length).toBeGreaterThan(0);
+    expect(
+      collected.events.filter((e) => e.kind === "operator_mute"),
+    ).toHaveLength(0);
+  });
+
+  it("STOP ends the run early with stopped on run_end", async () => {
+    const config = moderated();
+    const stopper = {
+      complete: (req: { blocks: string[] }) => {
+        const instruction = req.blocks.at(-1) ?? "";
+        const text = instruction.includes("NOTE") ? "STOP" : "PASS";
+        return Promise.resolve({
+          text,
+          usage: {
+            inputTokens: 1,
+            outputTokens: 1,
+            cacheReadTokens: 0,
+            cacheWriteTokens: 0,
+          },
+          raw: {},
+        });
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, stopper, {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const end = collected.events.find((e) => e.kind === "run_end");
+    expect(end?.stopped).toBe(true);
+    expect(end?.t).toBe(300);
+  });
+
+  it("moderated mock runs are byte-identical per seed", async () => {
+    const [a, b] = await Promise.all([run(moderated()), run(moderated())]);
+    const strip = ({ latency_ms, ...rest }: PostRecord) => rest;
+    expect(a.events).toEqual(b.events);
+    expect(a.posts.map(strip)).toEqual(b.posts.map(strip));
+  });
+});

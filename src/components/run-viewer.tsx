@@ -205,6 +205,10 @@ export function RunViewer({ runId }: { runId: string }) {
   const [agentInfo, setAgentInfo] = useState<Record<string, AgentInfo>>({});
   const [memberships, setMemberships] = useState<Record<string, string[]>>({});
   const [counts, setCounts] = useState({ wakes: 0, silences: 0 });
+  const [providerErrors, setProviderErrors] = useState<{
+    count: number;
+    first: string;
+  }>({ count: 0, first: "" });
   const [status, setStatus] = useState<"running" | "done" | "error">("running");
   const [statusError, setStatusError] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
@@ -272,6 +276,11 @@ export function RunViewer({ runId }: { runId: string }) {
       } else if (msg.type === "event") {
         if (msg.data.kind === "wake")
           setCounts((c) => ({ ...c, wakes: c.wakes + 1 }));
+        if (msg.data.kind === "provider_error")
+          setProviderErrors((prev) => ({
+            count: prev.count + 1,
+            first: prev.first || String(msg.data.error ?? "unknown error"),
+          }));
         if (msg.data.kind === "silence") {
           setCounts((c) => ({ ...c, silences: c.silences + 1 }));
           const { t, agent, room, raw } = msg.data as unknown as Silence;
@@ -470,6 +479,18 @@ export function RunViewer({ runId }: { runId: string }) {
         </div>
       </div>
 
+      {providerErrors.count > 0 && (
+        <div className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm">
+          <p className="font-semibold text-destructive">
+            {providerErrors.count} model call
+            {providerErrors.count === 1 ? "" : "s"} failed — posts may be
+            missing. This board is NOT a quiet society.
+          </p>
+          <p className="mt-1 text-xs text-destructive/80">
+            First error: {providerErrors.first}
+          </p>
+        </div>
+      )}
       {debug && meta && (
         <div className="rounded-lg border bg-muted/20 p-3 text-xs">
           <p>

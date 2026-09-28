@@ -71,3 +71,15 @@ export function runDate(runId: string): string {
   if (!match) return "";
   return `${match[1]}-${match[2]}-${match[3]} ${match[4]}:${match[5]}`;
 }
+
+// cheap scan for failed model calls — the "silent society" trust signal
+export function runProviderErrorCount(runId: string): number {
+  try {
+    const path = join(runDirFromId(runId), "events.jsonl");
+    if (!existsSync(path)) return 0;
+    const text = readFileSync(path, "utf8");
+    return (text.match(/"kind":"provider_error"/g) ?? []).length;
+  } catch {
+    return 0;
+  }
+}

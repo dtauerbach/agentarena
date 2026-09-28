@@ -32,7 +32,13 @@ export function makeClaudeCodeProvider(options: {
         "--strict-mcp-config",
         "--max-turns",
         options.webTools === true ? "4" : "1",
-        "--no-session-persistence",
+        // Sessions PERSIST by default (M1 trust guarantee): every wake is a
+        // real Claude Code session under ~/.claude/projects, independently
+        // openable with `claude --resume <session_id>` — evidence outside
+        // this codebase. Set ARENA_EPHEMERAL_SESSIONS=1 to disable.
+        ...(process.env.ARENA_EPHEMERAL_SESSIONS === "1"
+          ? ["--no-session-persistence"]
+          : []),
         "--model",
         options.model,
         "--output-format",
@@ -107,4 +113,38 @@ export function makeClaudeCodeProvider(options: {
       });
     },
   };
+}
+
+// Pre-launch credential probe: one tiny real call. Catches an expired Claude
+// Code login BEFORE a run starts, instead of a full run of failed calls that
+// looks like a silent society (the 2026-09-18 failure mode). Result cached
+// briefly so repeated launches don't re-ping.
+let probeCache: { at: number; key: string; error: string | null } | undefined;
+
+export async function probeClaudeCode(model: string): Promise<string | null> {
+  if (
+    probeCache &&
+    probeCache.key === model &&
+    Date.now() - probeCache.at < 10 * 60_000
+  )
+    return probeCache.error;
+  const provider = makeClaudeCodeProvider({ model });
+  try {
+    await provider.complete({
+      system: "Reply with the single word OK.",
+      blocks: ["OK?"],
+      cacheableBlocks: 0,
+      maxTokens: 8,
+      temperature: 0,
+    });
+    probeCache = { at: Date.now(), key: model, error: null };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    probeCache = {
+      at: Date.now(),
+      key: model,
+      error: `Claude Code probe failed — likely logged out (run \`claude\` and /login) or CLI broken: ${message.slice(0, 200)}`,
+    };
+  }
+  return probeCache.error;
 }

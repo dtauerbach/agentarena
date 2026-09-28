@@ -5,7 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { hasAnthropicCredentials, hasClaudeCodeCredentials } from "@/lib/env";
 import { listExperiments } from "@/lib/experiments";
 import { getLiveSession, readRunMeta } from "@/lib/run-manager";
-import { listRunDirs, RUNS_DIR, runDate, runPostCount } from "@/lib/runs-fs";
+import {
+  listRunDirs,
+  RUNS_DIR,
+  runDate,
+  runPostCount,
+  runProviderErrorCount,
+} from "@/lib/runs-fs";
 
 export const dynamic = "force-dynamic";
 
@@ -208,6 +214,7 @@ export default function Home() {
             const live = getLiveSession(runId);
             const meta = live?.meta ?? safeMeta(runId);
             const posts = runPostCount(runId);
+            const errors = live ? 0 : runProviderErrorCount(runId);
             return (
               <Link
                 key={runId}
@@ -220,6 +227,8 @@ export default function Home() {
                   </p>
                   {live?.status === "running" ? (
                     <Badge>live</Badge>
+                  ) : errors > 0 ? (
+                    <Badge variant="destructive">{errors} failed calls</Badge>
                   ) : (
                     <Badge variant="outline">replay</Badge>
                   )}

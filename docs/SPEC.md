@@ -43,8 +43,10 @@ until an actual experiment demands more.
 ## 3. Engine
 
 A discrete-event simulation: a priority queue of events keyed by
-`(time, kind, seq)` with kind order INJECT < POST < WAKE, so at any instant
-injections apply, then posts land, then agents look. All randomness comes from
+`(time, kind, seq)` with kind order INJECT < POST < MODERATOR < WAKE, so at
+any instant injections apply, then posts land, then the moderator (if
+configured) reads and rules, then agents look — a moderator MUTE at t
+suppresses an agent wake at the same t. All randomness comes from
 the seeded RNG in `src/rng.ts`.
 
 Events: `WAKE(agent)`, `POST(agent, draft)`, `INJECT(agent, text)`.
@@ -301,6 +303,17 @@ tools:
 common_prompt: ...              # inherited from base
 private_prompts: {}
 injections: []                  # {at, agent: name | [names] | all, text}
+moderator:                      # optional config-driven referee (see §11a)
+  prompt: ...                   # its system prompt; all its templates are YAML
+  instruction: ...              # command-protocol description (INJECT/MUTE/UNMUTE/JOIN/LEAVE/NOTE/STOP)
+  line: "#{id} {clock} {name}: {message}"   # omniscient board line
+  room_header: ... / log_header: ... / log_line: ... / log_empty: ...
+  tally_header: ... / tally_line: ...       # required when tallies set
+  model: claude-opus-5          # provider defaults to model.provider
+  cadence: 300                  # wakes every N sim seconds, alone
+  tallies: []                   # {name, room, pattern} — mechanical counts of
+                                # structured moves (e.g. "^VOTE (\w+)") since
+                                # its last wake, rendered into its view
 rooms:                          # default: one room holding everyone
   main: { members: all }        # members: all | [names]; optional prompt: "..."
 render: {...}                   # inherited from base
@@ -360,7 +373,10 @@ interface Provider {
   Deterministic for a given seed and call sequence. Used by every test and by
   `--provider mock`.
 - `claude_code`: one `claude -p` subprocess per call, billed to the
-  operator's Claude subscription instead of API credits. Our system prompt
+  operator's Claude subscription instead of API credits. Sessions persist by
+  default (each wake is independently openable with `claude --resume
+  <session_id>` — an audit trail owned by Claude Code, not arena; set
+  ARENA_EPHEMERAL_SESSIONS=1 to disable). Our system prompt
   replaces Claude Code's entirely; tools, settings files, thinking, and
   session persistence are disabled; output is capped via
   `CLAUDE_CODE_MAX_OUTPUT_TOKENS`. Two measured impurities, accepted and
@@ -398,7 +414,19 @@ Local, single-user, Next.js on `0.0.0.0:$PORT`. Three areas:
   provider); a pre-run cost estimate (§12) and an explicit confirm step for
   live runs. Runs execute in-process on the server, write their run directory
   as they go, and stream events over SSE.
-- **Moderator** (live runs): the operator is the adjudicator the harness
+- **Moderator, automated** (§11a): a run may configure a moderator block —
+  a model that wakes alone every `cadence` sim seconds, sees every room
+  (omniscient, invisible, full visibility, names even in anonymous mode),
+  the mechanical tallies, and its own past commands, and replies in a line
+  protocol (`INJECT <agent|all>: text`, `MUTE X`, `UNMUTE X`, `JOIN X room`,
+  `LEAVE X room`, `NOTE …`, `STOP`) parsed onto the same operator command
+  port. Unparseable lines and unknown targets are logged
+  (`moderator_unparsed`) and never applied. The engine still adjudicates
+  nothing: it counts, renders, parses, and relays; every ruling is the
+  moderator model's raw output. Unlike human moderation, a config-moderated
+  mock run IS seed-reproducible. Mock marker: a moderator instruction
+  contains the literal `NOTE` (agent instructions never do).
+- **Moderator, human** (live runs): the operator is the adjudicator the harness
   refuses to be. From the run page: inject text to one agent or all, mute or
   unmute an agent (a muted agent stops waking and in-flight drafts dissolve),
   move agents between rooms, and stop the run. Commands apply at the current

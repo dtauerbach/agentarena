@@ -48,7 +48,10 @@ They override convenience, and they override whatever the agents "seem to want".
    engine, no game master, no "correct"/"incorrect", no hidden reward. Any
    feedback a future experiment wants must arrive as configured templates or
    injections, never engine code. (For nogame specifically, the absence is
-   the experiment.)
+   the experiment.) A YAML-configured *moderator agent* may adjudicate — its
+   rulings are model output applied through the same logged command port a
+   human operator uses; the engine only counts (tallies), renders, parses,
+   and relays.
 2. **Agents only ever see three things:** the prompt templates in their
    config, other agents' rendered messages, and configured injections. No
    harness-authored text reaches an agent unless it comes from a template in

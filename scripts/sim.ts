@@ -18,6 +18,7 @@ import { analyzeRun } from "../src/lib/sim/metrics/analyze";
 import { analyzeBatch } from "../src/lib/sim/metrics/batch";
 import { loadPricing, usd } from "../src/lib/sim/pricing";
 import { makeProviders, requiredProviders } from "../src/lib/sim/providers";
+import { probeClaudeCode } from "../src/lib/sim/providers/claude-code";
 import { makeMockProvider } from "../src/lib/sim/providers/mock";
 
 function usage(): never {
@@ -84,12 +85,22 @@ function parseFlags(rest: string[]): Flags {
   return flags;
 }
 
-function guardCredentials(providers: string[]): void {
+async function guardCredentials(
+  providers: string[],
+  probeModel: string,
+): Promise<void> {
   for (const provider of providers)
     if (!hasCredentialsFor(provider)) {
       console.error(missingCredentialsMessage(provider));
       process.exit(1);
     }
+  if (providers.includes("claude_code")) {
+    const probeError = await probeClaudeCode(probeModel);
+    if (probeError !== null) {
+      console.error(probeError);
+      process.exit(1);
+    }
+  }
 }
 
 function providerKeys() {
@@ -108,8 +119,7 @@ function guardBudget(
 ) {
   const config = loadConfig(configPath, overrides);
   if (config.model.provider === "mock") return;
-  const rates = loadPricing()[config.model.name];
-  const single = estimateCost(config, rates, env.ARENA_BUDGET_USD);
+  const single = estimateCost(config, loadPricing(), env.ARENA_BUDGET_USD);
   const total = single.usd === null ? null : single.usd * runs;
   const subscription = config.model.provider === "claude_code";
   console.log(
@@ -130,7 +140,7 @@ function guardBudget(
 
 async function commandRun(configPath: string, flags: Flags): Promise<void> {
   const config = loadConfig(configPath, flags);
-  guardCredentials(requiredProviders(config));
+  await guardCredentials(requiredProviders(config), config.model.name);
   guardBudget(configPath, flags, 1, flags.yes);
   const provider = makeProviders(config, providerKeys());
   const dir = makeRunDir(config, "runs", flags.label);
@@ -168,7 +178,7 @@ async function commandRun(configPath: string, flags: Flags): Promise<void> {
 async function commandBatch(configPath: string, flags: Flags): Promise<void> {
   if (!Number.isInteger(flags.n) || flags.n < 1) usage();
   const probe = loadConfig(configPath, flags);
-  guardCredentials(requiredProviders(probe));
+  await guardCredentials(requiredProviders(probe), probe.model.name);
   guardBudget(configPath, flags, flags.n, flags.yes);
   const batchDir = await runBatch({
     configPath,

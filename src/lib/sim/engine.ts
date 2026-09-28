@@ -8,13 +8,20 @@ import {
 import type { AgentState, RoomAgentState, RoomInfo } from "./agent";
 import { buildWakeBlocks, makeAgentState, makeRoomState } from "./agent";
 import type { BoardPost } from "./board";
-import { fill, renderLine, stableBoardBlockCount } from "./board";
+import {
+  fill,
+  renderClock,
+  renderLine,
+  renderModeratorBoard,
+  stableBoardBlockCount,
+} from "./board";
 import type { Config } from "./config";
 import type { Pacer } from "./pacer";
 import {
   applyOutputMode,
   countWords,
   parseGate,
+  parseModerator,
   parseRevise,
   parseWake,
 } from "./parse";
@@ -25,7 +32,8 @@ import type { EngineHooks, PostRecord, Provider, Usage } from "./types";
 // agents look (SPEC §3)
 const INJECT = 0;
 const POST = 1;
-const WAKE = 2;
+const MODERATOR = 2;
+const WAKE = 3;
 
 type Draft = {
   raw: string;
@@ -51,6 +59,11 @@ type SimEvent =
       agent: string;
       room: string;
       draft: Draft;
+    }
+  | {
+      time: number;
+      kind: typeof MODERATOR;
+      seq: number;
     }
   | {
       time: number;
@@ -242,11 +255,19 @@ export async function runEngine(
     });
   };
 
+  type Via = "scheduled" | "operator" | "moderator";
+  const viaTag = (via: Via) =>
+    via === "operator"
+      ? { operator: true }
+      : via === "moderator"
+        ? { moderator: true }
+        : {};
+
   const injectInto = (
     agentName: string,
     t: number,
     text: string,
-    operator: boolean,
+    via: Via,
   ): void => {
     const agent = agents.get(agentName) as AgentState;
     agent.injections.push({ t, text });
@@ -255,18 +276,17 @@ export async function runEngine(
       kind: "inject",
       agent: agentName,
       text,
-      ...(operator ? { operator: true } : {}),
+      ...viaTag(via),
     });
   };
 
-  const applyOperator = (command: OperatorCommand): void => {
+  const applyOperator = (command: OperatorCommand, via: Via): void => {
     switch (command.kind) {
       case "inject": {
         const targets =
           command.agent === "all" ? config.agentNames : [command.agent];
         for (const target of targets)
-          if (agents.has(target))
-            injectInto(target, simNow, command.text, true);
+          if (agents.has(target)) injectInto(target, simNow, command.text, via);
         return;
       }
       case "mute": {
@@ -275,14 +295,24 @@ export async function runEngine(
         agent.muted = true;
         agent.composing = false; // any in-flight draft cancels at landing
         for (const state of agent.rooms.values()) state.wakeVersion += 1;
-        hooks.emit({ t: simNow, kind: "operator_mute", agent: agent.name });
+        hooks.emit({
+          t: simNow,
+          kind: "operator_mute",
+          agent: agent.name,
+          ...viaTag(via),
+        });
         return;
       }
       case "unmute": {
         const agent = agents.get(command.agent);
         if (!agent || !agent.muted) return;
         agent.muted = false;
-        hooks.emit({ t: simNow, kind: "operator_unmute", agent: agent.name });
+        hooks.emit({
+          t: simNow,
+          kind: "operator_unmute",
+          agent: agent.name,
+          ...viaTag(via),
+        });
         for (const [name, room] of rooms)
           if (room.members.has(agent.name)) {
             const state = roomState(agent, name);
@@ -305,6 +335,7 @@ export async function runEngine(
           kind: "room_join",
           agent: agent.name,
           room: command.room,
+          ...viaTag(via),
         });
         if (!agent.muted) {
           const state = roomState(agent, command.room);
@@ -328,6 +359,7 @@ export async function runEngine(
           kind: "room_leave",
           agent: agent.name,
           room: command.room,
+          ...viaTag(via),
         });
         return;
       }
@@ -370,24 +402,37 @@ export async function runEngine(
       const agent = agents.get(member) as AgentState;
       scheduleWake(agent, name, sampleFirstWake(config, member, rng));
     }
+  // the config moderator wakes at k·cadence (index-multiplied, no float
+  // drift); its commands and notes accumulate here as its memory
+  let moderatorWakeIndex = 0;
+  let lastModeratorTime = -1;
+  const moderatorLog: { t: number; text: string }[] = [];
+  if (config.moderator) {
+    moderatorWakeIndex = 1;
+    const first = moderatorWakeIndex * config.moderator.cadence;
+    if (first <= config.duration)
+      heapPush(heap, { time: first, kind: MODERATOR, seq: seq++ });
+  }
 
   const callProvider = async (
-    agent: AgentState,
+    agentName: string,
     room: string,
     t: number,
     blocks: string[],
-    kind: "wake" | "gate" | "revise",
+    kind: "wake" | "gate" | "revise" | "moderator",
     cacheableBlocks = 0,
+    overrides?: { system: string; maxTokens: number; temperature: number },
   ): Promise<CallResult> => {
     const started = Date.now();
     summary.calls += 1;
+    const system = overrides?.system ?? config.common_prompt;
     try {
-      const result = await providerFor(agent.name).complete({
-        system: config.common_prompt,
+      const result = await providerFor(agentName).complete({
+        system,
         blocks,
         cacheableBlocks,
-        maxTokens: config.model.max_tokens,
-        temperature: config.model.temperature,
+        maxTokens: overrides?.maxTokens ?? config.model.max_tokens,
+        temperature: overrides?.temperature ?? config.model.temperature,
       });
       const latency = Date.now() - started;
       totals.inputTokens += result.usage.inputTokens;
@@ -396,10 +441,10 @@ export async function runEngine(
       totals.cacheWriteTokens += result.usage.cacheWriteTokens;
       hooks.call({
         t,
-        agent: agent.name,
+        agent: agentName,
         room,
         kind,
-        request: { system: config.common_prompt, blocks },
+        request: { system, blocks },
         response: { text: result.text, usage: result.usage, raw: result.raw },
         latency_ms: latency,
       });
@@ -414,10 +459,10 @@ export async function runEngine(
       const message = error instanceof Error ? error.message : String(error);
       hooks.call({
         t,
-        agent: agent.name,
+        agent: agentName,
         room,
         kind,
-        request: { system: config.common_prompt, blocks },
+        request: { system, blocks },
         response: { error: message },
         latency_ms: latency,
       });
@@ -462,7 +507,8 @@ export async function runEngine(
 
   while (heap.length > 0 && !stopped) {
     if (opts.operator)
-      for (const command of opts.operator.drain()) applyOperator(command);
+      for (const command of opts.operator.drain())
+        applyOperator(command, "operator");
     if (stopped) break;
     if (heap.length === 0) break;
     const head = heap[0] as SimEvent;
@@ -473,7 +519,171 @@ export async function runEngine(
     if (head.kind === INJECT) {
       const event = heapPop(heap) as SimEvent & { kind: typeof INJECT };
       simNow = event.time;
-      injectInto(event.agent, event.time, event.text, false);
+      injectInto(event.agent, event.time, event.text, "scheduled");
+      continue;
+    }
+
+    // MODERATOR: the config-driven referee (M1). Runs alone at k·cadence —
+    // after same-instant posts land (POST < MODERATOR), before same-instant
+    // agent wakes (MODERATOR < WAKE), so a MUTE here suppresses a wake at
+    // the same t. The engine only counts, renders, parses, and relays; every
+    // decision is the moderator model's, applied via the operator port.
+    if (head.kind === MODERATOR && config.moderator) {
+      const event = heapPop(heap) as SimEvent & { kind: typeof MODERATOR };
+      simNow = event.time;
+      const mod = config.moderator;
+      const blocks: string[] = [];
+      for (const [roomName, room] of rooms) {
+        const header = fill(mod.room_header, {
+          room: roomName,
+          members: [...room.members].join(", ") || "(empty)",
+        });
+        const board = renderModeratorBoard(
+          config,
+          mod,
+          roomPosts.get(roomName) as BoardPost[],
+        );
+        blocks.push(`${header}\n${board}`);
+      }
+      if (mod.tallies.length > 0) {
+        // mechanical counting of structured moves since the last moderator
+        // wake — rendering for the referee, never resolution
+        const tallyLines: string[] = [mod.tally_header as string];
+        for (const tally of mod.tallies) {
+          const counts = new Map<string, number>();
+          const posts = (roomPosts.get(tally.room) ?? []).filter(
+            (p) => p.t_land > lastModeratorTime && p.t_land <= event.time,
+          );
+          const pattern = new RegExp(tally.pattern, "gim");
+          for (const post of posts)
+            for (const match of post.message.matchAll(pattern)) {
+              const captured = match[1];
+              if (captured !== undefined)
+                counts.set(captured, (counts.get(captured) ?? 0) + 1);
+            }
+          const rendered =
+            [...counts.entries()]
+              .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+              .map(([who, n]) => `${who} ${n}`)
+              .join(", ") || "none";
+          tallyLines.push(
+            fill(mod.tally_line as string, {
+              name: tally.name,
+              room: tally.room,
+              counts: rendered,
+            }),
+          );
+          hooks.emit({
+            t: event.time,
+            kind: "tally",
+            name: tally.name,
+            room: tally.room,
+            counts: Object.fromEntries(counts),
+          });
+        }
+        blocks.push(tallyLines.join("\n"));
+      }
+      blocks.push(
+        moderatorLog.length === 0
+          ? `${mod.log_header}\n${mod.log_empty}`
+          : `${mod.log_header}\n${moderatorLog
+              .map((entry) =>
+                fill(mod.log_line, {
+                  clock: renderClock(entry.t),
+                  text: entry.text,
+                }),
+              )
+              .join("\n")}`,
+      );
+      blocks.push(
+        fill(mod.instruction, {
+          clock: renderClock(event.time),
+          duration: renderClock(config.duration),
+          agents: config.agentNames.join(", "),
+          rooms: [...rooms.keys()].join(", "),
+        }),
+      );
+
+      const result = await callProvider(
+        "moderator",
+        "*",
+        event.time,
+        blocks,
+        "moderator",
+        0,
+        {
+          system: mod.prompt,
+          maxTokens: mod.max_tokens,
+          temperature: mod.temperature,
+        },
+      );
+      if (result.ok) {
+        hooks.emit({
+          t: event.time,
+          kind: "moderator_wake",
+          raw: result.text,
+          tokens_in: result.usage.inputTokens,
+          tokens_out: result.usage.outputTokens,
+          cache_read_tokens: result.usage.cacheReadTokens,
+        });
+        for (const parsed of parseModerator(result.text)) {
+          if (parsed.kind === "note") {
+            hooks.emit({
+              t: event.time,
+              kind: "moderator_note",
+              text: parsed.text,
+            });
+            moderatorLog.push({ t: event.time, text: parsed.line });
+            continue;
+          }
+          if (parsed.kind === "unparsed") {
+            hooks.emit({
+              t: event.time,
+              kind: "moderator_unparsed",
+              line: parsed.line,
+              reason: "unrecognized",
+            });
+            continue;
+          }
+          // validate targets before applying, so a hallucinated name is
+          // visible in the logs instead of silently no-oping
+          const command = parsed.command;
+          const badAgent =
+            "agent" in command &&
+            command.agent !== "all" &&
+            !agents.has(command.agent);
+          const badRoom = "room" in command && !rooms.has(command.room);
+          if (badAgent || badRoom) {
+            hooks.emit({
+              t: event.time,
+              kind: "moderator_unparsed",
+              line: parsed.line,
+              reason: badAgent ? "unknown agent" : "unknown room",
+            });
+            continue;
+          }
+          applyOperator(command, "moderator");
+          moderatorLog.push({ t: event.time, text: parsed.line });
+        }
+      } else {
+        hooks.emit({
+          t: event.time,
+          kind: "provider_error",
+          agent: "moderator",
+          error: result.error,
+        });
+      }
+      lastModeratorTime = event.time;
+      if (!stopped) {
+        moderatorWakeIndex += 1;
+        const next = moderatorWakeIndex * mod.cadence;
+        if (next <= config.duration)
+          heapPush(heap, { time: next, kind: MODERATOR, seq: seq++ });
+      }
+      continue;
+    }
+    if (head.kind === MODERATOR) {
+      heapPop(heap); // unreachable without config.moderator; drop defensively
       continue;
     }
 
@@ -529,7 +739,7 @@ export async function runEngine(
           (rooms.get(room)?.prompt !== undefined ? 1 : 0) +
           stableBoardBlockCount(config, posts);
         const result = await callProvider(
-          agent,
+          agent.name,
           room,
           event.time,
           blocks,
@@ -701,7 +911,7 @@ export async function runEngine(
       async (view) => {
         if (view.gateBlocks) {
           const gate = await callProvider(
-            view.agent,
+            view.agent.name,
             view.room,
             view.time,
             view.gateBlocks,
@@ -711,7 +921,7 @@ export async function runEngine(
           if (!gate.ok || !parseGate(gate.text))
             return { gate, turn: undefined };
           const turn = await callProvider(
-            view.agent,
+            view.agent.name,
             view.room,
             view.time,
             view.turnBlocks,
@@ -721,7 +931,7 @@ export async function runEngine(
           return { gate, turn };
         }
         const turn = await callProvider(
-          view.agent,
+          view.agent.name,
           view.room,
           view.time,
           view.turnBlocks,

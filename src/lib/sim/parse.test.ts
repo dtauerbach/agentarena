@@ -3,6 +3,7 @@ import {
   applyOutputMode,
   countWords,
   parseGate,
+  parseModerator,
   parseRevise,
   parseWake,
 } from "./parse";
@@ -103,5 +104,71 @@ describe("output modes", () => {
   it("counts words by whitespace", () => {
     expect(countWords("")).toBe(0);
     expect(countWords("  a  b\nc ")).toBe(3);
+  });
+});
+
+describe("moderator command protocol", () => {
+  it("parses every verb, case-insensitively, with trailing punctuation", () => {
+    expect(parseModerator("INJECT all: Night falls.")).toEqual([
+      {
+        kind: "command",
+        command: { kind: "inject", agent: "all", text: "Night falls." },
+        line: "INJECT all: Night falls.",
+      },
+    ]);
+    expect(parseModerator("inject C: you feel watched")[0]).toMatchObject({
+      command: { kind: "inject", agent: "C", text: "you feel watched" },
+    });
+    expect(parseModerator("MUTE C")[0]).toMatchObject({
+      command: { kind: "mute", agent: "C" },
+    });
+    expect(parseModerator("mute C.")[0]).toMatchObject({
+      command: { kind: "mute", agent: "C" },
+    });
+    expect(parseModerator("UNMUTE C!")[0]).toMatchObject({
+      command: { kind: "unmute", agent: "C" },
+    });
+    expect(parseModerator("JOIN C night")[0]).toMatchObject({
+      command: { kind: "join", agent: "C", room: "night" },
+    });
+    expect(parseModerator("LEAVE C night")[0]).toMatchObject({
+      command: { kind: "leave", agent: "C", room: "night" },
+    });
+    expect(parseModerator("STOP.")[0]).toMatchObject({
+      command: { kind: "stop" },
+    });
+  });
+
+  it("NOTE lines are notes, with or without text", () => {
+    expect(parseModerator("NOTE two votes for C")[0]).toEqual({
+      kind: "note",
+      text: "two votes for C",
+      line: "NOTE two votes for C",
+    });
+    expect(parseModerator("NOTE")[0]).toMatchObject({ kind: "note", text: "" });
+  });
+
+  it("anything else is unparsed, never a command", () => {
+    const lines = parseModerator(
+      "The village deliberates.\nMUTE\nVOTE C\nFROBNICATE the wug",
+    );
+    expect(lines.map((l) => l.kind)).toEqual([
+      "unparsed",
+      "unparsed",
+      "unparsed",
+      "unparsed",
+    ]);
+  });
+
+  it("multi-line replies parse in order; blank lines are skipped", () => {
+    const lines = parseModerator(
+      "NOTE end of day 1\n\nINJECT all: C is eliminated.\nMUTE C\n",
+    );
+    expect(lines.map((l) => l.kind)).toEqual(["note", "command", "command"]);
+  });
+
+  it("empty reply parses to nothing", () => {
+    expect(parseModerator("")).toEqual([]);
+    expect(parseModerator("  \n ")).toEqual([]);
   });
 });

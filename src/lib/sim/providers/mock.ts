@@ -26,15 +26,39 @@ function fakeUsage(req: ProviderRequest, text: string): Usage {
   };
 }
 
+// Moderator replies cycle a fixed script (no RNG draw, so agent-call
+// byte-identity is untouched); the script exercises note, broadcast inject,
+// mute, the unparsed fail-safe, and unmute.
+const MODERATOR_SCRIPT = [
+  "NOTE all quiet so far",
+  "INJECT all: The moderator is watching.",
+  "MUTE B",
+  "FROBNICATE the wug",
+  "UNMUTE B\nNOTE resuming normal play",
+];
+
 // Deterministic for a given seed and call sequence (SPEC §10). Decides the
 // reply kind from the last content block only — that block is always the
-// rendered instruction, so its wording routes gate/revise/wake replies.
+// rendered instruction, so its wording routes moderator/gate/revise/wake
+// replies (a moderator instruction contains "NOTE"; agent instructions never
+// do).
 export function makeMockProvider(seed: number): Provider {
   const rng = makeRng(seed).fork("mock");
+  let moderatorCalls = 0;
   return {
     complete(req) {
       const instruction = req.blocks.at(-1) ?? "";
       let text: string;
+      if (instruction.includes("NOTE")) {
+        text = MODERATOR_SCRIPT[
+          moderatorCalls++ % MODERATOR_SCRIPT.length
+        ] as string;
+        return Promise.resolve({
+          text,
+          usage: fakeUsage(req, text),
+          raw: { mock: true },
+        });
+      }
       if (instruction.includes("ACT")) {
         text = rng.next() < 0.5 ? "ACT" : "PASS";
       } else if (instruction.includes("POST")) {

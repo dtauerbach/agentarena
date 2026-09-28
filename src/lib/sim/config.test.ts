@@ -87,3 +87,82 @@ describe("config loading", () => {
     expect(checked).toBeGreaterThan(17);
   });
 });
+
+describe("moderator config", () => {
+  const MOD = `
+moderator:
+  prompt: "referee"
+  instruction: "reply with commands"
+  line: "#{id} {clock} {name}: {message}"
+  room_header: "=== {room} ==="
+  log_header: "log:"
+  log_line: "({clock}) {text}"
+  log_empty: "(none)"
+  model: claude-opus-5
+  cadence: 300
+`;
+
+  function write(extra: string): string {
+    const dir = mkdtempSync(join(tmpdir(), "arena-mod-"));
+    const file = join(dir, "mod.yaml");
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/nogame/base.yaml")}\nname: mod\n${extra}`,
+    );
+    return file;
+  }
+
+  it("accepts a full moderator block with defaults applied", () => {
+    const config = loadConfig(write(MOD));
+    expect(config.moderator?.cadence).toBe(300);
+    expect(config.moderator?.temperature).toBe(0);
+    expect(config.moderator?.max_tokens).toBe(400);
+    expect(config.moderator?.tallies).toEqual([]);
+  });
+
+  it("rejects nonpositive cadence and missing templates", () => {
+    expect(() =>
+      loadConfig(write(MOD.replace("cadence: 300", "cadence: 0"))),
+    ).toThrow(/cadence/);
+    expect(() =>
+      loadConfig(
+        write(MOD.replace('  instruction: "reply with commands"\n', "")),
+      ),
+    ).toThrow(/instruction/);
+  });
+
+  it("reserves the agent name moderator", () => {
+    expect(() =>
+      loadConfig(write("agents:\n  count: 2\n  names: [moderator, B]\n")),
+    ).toThrow(/reserved/);
+  });
+
+  it("validates tally rooms, patterns, and required templates", () => {
+    const withTally = (tally: string, templates = "") =>
+      write(`${MOD}${templates}  tallies:\n${tally}`);
+    expect(() =>
+      loadConfig(
+        withTally(
+          '    - { name: vote, room: nowhere, pattern: "^VOTE (\\\\w+)" }',
+        ),
+      ),
+    ).toThrow(/unknown room/);
+    expect(() =>
+      loadConfig(withTally('    - { name: vote, room: main, pattern: "([" }')),
+    ).toThrow(/invalid pattern/);
+    expect(() =>
+      loadConfig(
+        withTally(
+          '    - { name: vote, room: main, pattern: "^VOTE (\\\\w+)" }',
+        ),
+      ),
+    ).toThrow(/tally_header/);
+    const valid = loadConfig(
+      withTally(
+        '    - { name: vote, room: main, pattern: "^VOTE (\\\\w+)" }',
+        '  tally_header: "moves:"\n  tally_line: "{name}: {counts}"\n',
+      ),
+    );
+    expect(valid.moderator?.tallies).toHaveLength(1);
+  });
+});

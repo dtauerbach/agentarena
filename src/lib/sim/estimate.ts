@@ -6,7 +6,7 @@ export type CostEstimate = {
   calls: number;
   inputTokens: number;
   outputTokens: number;
-  usd: number | null; // null when the model has no pricing entry
+  usd: number | null; // null when any involved model has no pricing entry
   budgetUsd: number;
   overBudget: boolean;
 };
@@ -14,14 +14,17 @@ export type CostEstimate = {
 const TOKENS_PER_WORD = 1.4;
 const PER_POST_OVERHEAD_TOKENS = 10; // "#id clock name: " framing
 const PRIVATE_BLOCK_TOKENS = 60; // header + identity + status + instruction
+const MODERATOR_OVERHEAD_TOKENS = 120; // room headers + tallies + memory + instruction
 
 // SPEC §12: simulate the expected schedule — each wake posts with probability
 // cost.assumed_post_rate at max_words words, growing the board; input per
 // call is system + board so far + private block + instruction. Gate mode
-// doubles calls; chat mode adds a revision call to a third of posts.
+// doubles calls; chat mode adds a revision call to a third of posts; a
+// config moderator adds duration/cadence omniscient reads of the whole
+// society, priced at its own model's rates.
 export function estimateCost(
   config: Config,
-  rates: ModelRates | undefined,
+  pricing: Record<string, ModelRates>,
   budgetUsd: number,
 ): CostEstimate {
   const wakesPerAgent =
@@ -68,14 +71,42 @@ export function estimateCost(
   }
   inputTokens = Math.round(inputTokens);
   outputTokens = Math.round(outputTokens);
+
+  // moderator calls are priced separately (its model may differ)
+  let moderatorInput = 0;
+  let moderatorOutput = 0;
+  let moderatorCalls = 0;
+  if (config.moderator) {
+    moderatorCalls = Math.floor(config.duration / config.moderator.cadence);
+    const moderatorSystem = Math.ceil(config.moderator.prompt.length / 4);
+    for (let k = 1; k <= moderatorCalls; k++) {
+      const boardAtK = (boardPosts * k) / Math.max(1, moderatorCalls);
+      moderatorInput +=
+        moderatorSystem + boardAtK * postTokens + MODERATOR_OVERHEAD_TOKENS;
+    }
+    moderatorOutput = moderatorCalls * (config.moderator.max_tokens / 2);
+    moderatorInput = Math.round(moderatorInput);
+    moderatorOutput = Math.round(moderatorOutput);
+  }
+
+  const agentRates = pricing[config.model.name];
+  const moderatorRates = config.moderator
+    ? pricing[config.moderator.model]
+    : undefined;
   const cost =
-    rates === undefined
+    agentRates === undefined || (config.moderator && !moderatorRates)
       ? null
-      : usd(rates, { input: inputTokens, output: outputTokens });
+      : usd(agentRates, { input: inputTokens, output: outputTokens }) +
+        (moderatorRates
+          ? usd(moderatorRates, {
+              input: moderatorInput,
+              output: moderatorOutput,
+            })
+          : 0);
   return {
-    calls,
-    inputTokens,
-    outputTokens,
+    calls: calls + moderatorCalls,
+    inputTokens: inputTokens + moderatorInput,
+    outputTokens: outputTokens + moderatorOutput,
     usd: cost,
     budgetUsd,
     overBudget: cost !== null && cost > budgetUsd,

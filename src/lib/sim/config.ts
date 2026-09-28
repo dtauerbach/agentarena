@@ -147,6 +147,38 @@ export const configSchema = z.strictObject({
     )
     .default([]),
   render: renderSchema,
+  // The config-driven moderator (M1): an agent that referees through the
+  // operator command port. Every string it reads is authored here (hard
+  // rule 3) — including the command-protocol description in `instruction`.
+  moderator: z
+    .strictObject({
+      prompt: z.string(),
+      instruction: z.string(),
+      line: z.string(),
+      room_header: z.string(),
+      log_header: z.string(),
+      log_line: z.string(),
+      log_empty: z.string(),
+      tally_header: z.string().optional(),
+      tally_line: z.string().optional(),
+      model: z.string(),
+      provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
+      cadence: z.number().positive(),
+      temperature: z.number().min(0).max(2).default(0),
+      max_tokens: z.number().int().positive().default(400),
+      // mechanical counting of structured moves (e.g. "VOTE X") since the
+      // moderator's last wake — rendering, not adjudication
+      tallies: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1),
+            room: z.string(),
+            pattern: z.string().min(1),
+          }),
+        )
+        .default([]),
+    })
+    .optional(),
   cost: z
     .strictObject({ assumed_post_rate: z.number().min(0).max(1).default(0.5) })
     .prefault({}),
@@ -257,6 +289,29 @@ export function loadConfig(
       throw new Error(`private_prompts: unknown agent "${name}"`);
   if (agentNames.includes("all"))
     throw new Error('agents.names: "all" is reserved for broadcast targets');
+  if (agentNames.includes("moderator"))
+    throw new Error('agents.names: "moderator" is reserved');
+  if (config.moderator) {
+    for (const tally of config.moderator.tallies) {
+      if (!(tally.room in config.rooms))
+        throw new Error(`moderator.tallies: unknown room "${tally.room}"`);
+      try {
+        new RegExp(tally.pattern, "im");
+      } catch {
+        throw new Error(
+          `moderator.tallies.${tally.name}: invalid pattern "${tally.pattern}"`,
+        );
+      }
+    }
+    if (
+      config.moderator.tallies.length > 0 &&
+      (config.moderator.tally_header === undefined ||
+        config.moderator.tally_line === undefined)
+    )
+      throw new Error(
+        "moderator: tally_header and tally_line are required when tallies are set",
+      );
+  }
   for (const inj of config.injections) {
     const targets = Array.isArray(inj.agent) ? inj.agent : [inj.agent];
     for (const target of targets)

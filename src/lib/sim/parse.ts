@@ -60,6 +60,88 @@ export function parseRevise(raw: string): ReviseReply {
   return { action: "post" };
 }
 
+// Structurally identical to the engine's OperatorCommand (kept local to
+// avoid an import cycle): the moderator speaks the operator's language.
+export type ModeratorCommand =
+  | { kind: "inject"; agent: string; text: string }
+  | { kind: "mute"; agent: string }
+  | { kind: "unmute"; agent: string }
+  | { kind: "join"; agent: string; room: string }
+  | { kind: "leave"; agent: string; room: string }
+  | { kind: "stop" };
+
+export type ModeratorLine =
+  | { kind: "command"; command: ModeratorCommand; line: string }
+  | { kind: "note"; text: string; line: string }
+  | { kind: "unparsed"; line: string };
+
+// Line protocol for the config-driven moderator. Verbs case-insensitive with
+// trailing punctuation tolerated (same style as PASS/ACT); agent and room
+// names are exact identifiers. Anything unrecognized is "unparsed" —
+// fail-safe: logged, never applied.
+function parseModeratorLine(line: string): ModeratorLine {
+  const inject = /^INJECT\s+(\S+)\s*:\s*(.+)$/i.exec(line);
+  if (inject)
+    return {
+      kind: "command",
+      command: {
+        kind: "inject",
+        agent: inject[1] as string,
+        text: (inject[2] as string).trim(),
+      },
+      line,
+    };
+  const mute = /^MUTE\s+(\S+?)[.!?…]*$/i.exec(line);
+  if (mute)
+    return {
+      kind: "command",
+      command: { kind: "mute", agent: mute[1] as string },
+      line,
+    };
+  const unmute = /^UNMUTE\s+(\S+?)[.!?…]*$/i.exec(line);
+  if (unmute)
+    return {
+      kind: "command",
+      command: { kind: "unmute", agent: unmute[1] as string },
+      line,
+    };
+  const join = /^JOIN\s+(\S+)\s+([\w-]+)$/i.exec(line);
+  if (join)
+    return {
+      kind: "command",
+      command: {
+        kind: "join",
+        agent: join[1] as string,
+        room: join[2] as string,
+      },
+      line,
+    };
+  const leave = /^LEAVE\s+(\S+)\s+([\w-]+)$/i.exec(line);
+  if (leave)
+    return {
+      kind: "command",
+      command: {
+        kind: "leave",
+        agent: leave[1] as string,
+        room: leave[2] as string,
+      },
+      line,
+    };
+  if (/^STOP[.!?…]*$/i.test(line))
+    return { kind: "command", command: { kind: "stop" }, line };
+  const note = /^NOTE\b[:,]?\s*(.*)$/i.exec(line);
+  if (note) return { kind: "note", text: (note[1] as string).trim(), line };
+  return { kind: "unparsed", line };
+}
+
+export function parseModerator(raw: string): ModeratorLine[] {
+  return raw
+    .split("\n")
+    .map((rawLine) => rawLine.trim())
+    .filter((line) => line !== "")
+    .map(parseModeratorLine);
+}
+
 export function countWords(text: string): number {
   const trimmed = text.trim();
   return trimmed === "" ? 0 : trimmed.split(/\s+/).length;

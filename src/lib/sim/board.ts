@@ -76,6 +76,27 @@ export function renderBoardBlocks(
   return blocks;
 }
 
+// The moderator's omniscient view of one room: full visibility regardless of
+// board.visibility, and its own line template — names stay visible even in
+// anonymous identity, or the referee could not attribute a MUTE.
+export function renderModeratorBoard(
+  config: Config,
+  moderator: { line: string },
+  posts: readonly BoardPost[],
+): string {
+  if (posts.length === 0) return config.render.empty_board;
+  return posts
+    .map((post) =>
+      fill(moderator.line, {
+        id: post.seq,
+        clock: renderClock(post.t_land),
+        name: post.agent,
+        message: post.message,
+      }),
+    )
+    .join("\n");
+}
+
 // complete board blocks never change bytes again (chunked by room seq);
 // a sliding last_n window or an empty board has no stable prefix
 export function stableBoardBlockCount(

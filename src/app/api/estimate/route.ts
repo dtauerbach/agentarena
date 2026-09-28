@@ -28,8 +28,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       seed,
     });
     const pricing = loadPricing();
-    const rates = pricing[config.model.name];
-    const estimate = estimateCost(config, rates, env.ARENA_BUDGET_USD);
+    const estimate = estimateCost(config, pricing, env.ARENA_BUDGET_USD);
     return NextResponse.json({
       estimate,
       model: config.model.name,
