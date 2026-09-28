@@ -106,7 +106,13 @@
   until a side wins (duration 7200, referee STOPs at the win), viewer keeps
   engine arrival order at equal t, announcements only in the public panel,
   room open/close dividers + CLOSED badge, banner reworded, claude_code
-  retries a process-level failure once.
+  retries a process-level failure once. Validated live
+  (`runs/20260928-192337-cycles-check-s1`, same model mix, 107 calls, 0
+  errors): village had 0 wakes and 0 posts strictly inside the night
+  windows (buzzer posts at exactly nightfall are composed before it),
+  night room posted only at night, and the game ran past the old 1:00:00
+  cutoff to a village win at 1:05:00 — precisely the game the previous
+  script had cut off "without a winner".
 
 ## Decisions
 
