@@ -89,7 +89,12 @@
   moderator too, wired to both providers (claude_code: MAX_THINKING_TOKENS /
   --effort, token count logged, text not retrievable; anthropic: adaptive or
   budget_tokens with summarized trace logged, shown in debug receipts).
-  Launch form has a thinking override.
+  Launch form has a thinking override. Validated live
+  (`runs/20260928-185652-scratchpad-check-s1`, same sonnet/opus/haiku mix):
+  95/95 wakes used the marker, 0 errors, 0 posts carrying it, no role leak
+  on the board — Bob's "I'm mafia with Eve as my partner" and Eve's "Bob is
+  my partner" sat in the private half of 4 replies and never posted. Mafia
+  won 2v2 at 0:40:00 after Alice, Charlie, Frank died; referee clean.
 
 ## Decisions
 
