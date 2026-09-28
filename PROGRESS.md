@@ -72,8 +72,14 @@
   latest-per-player (a real vote count instead of "lines since last wake"),
   scripted phase/death announcements, max_tokens raised so posts aren't
   truncated mid-sentence, turn instruction forbids reasoning preambles.
-  Confirm checkbox only for API-credit runs. Next: carry per-player choices
-  into batches.
+  Confirm checkbox only for API-credit runs. Validated live
+  (`runs/20260928-181314-referee-check-s1`, sonnet/opus/haiku mix, opus
+  referee, 104 calls, 0 errors): Alice lynched Day 1, night room opened
+  for Bob+Eve and closed at dawn, Grace killed, Charlie lynched Day 2 →
+  2v2, "The mafia win!" + STOP at 0:40:00; no dead player ever posted
+  again. One referee reasoning line logged as unparsed (never applied).
+  Next: carry per-player choices into batches; consider closing the
+  village at night too (villagers still chat and vote after nightfall).
 
 ## Decisions
 
