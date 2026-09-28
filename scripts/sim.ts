@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   env,
@@ -18,9 +18,14 @@ import { analyzeRun } from "../src/lib/sim/metrics/analyze";
 import { analyzeBatch, listBatchRunDirs } from "../src/lib/sim/metrics/batch";
 import { loadObserver, runObserver } from "../src/lib/sim/observe";
 import { loadPricing, usd } from "../src/lib/sim/pricing";
-import { makeProviders, requiredProviders } from "../src/lib/sim/providers";
+import {
+  makeProvider,
+  makeProviders,
+  requiredProviders,
+} from "../src/lib/sim/providers";
 import { probeClaudeCode } from "../src/lib/sim/providers/claude-code";
 import { makeMockProvider } from "../src/lib/sim/providers/mock";
+import { verifyRun } from "../src/lib/sim/verify";
 
 function usage(): never {
   console.error(
@@ -29,6 +34,7 @@ function usage(): never {
       "  npm run sim -- run <config.yaml> [--provider mock|anthropic] [--duration SEC] [--seed N] [--model ID] [--yes]",
       "  npm run sim -- batch <config.yaml> --n N [--concurrency C] [--seed-start S] [--provider mock|anthropic] [--yes]",
       "  npm run sim -- analyze <run dir | batch dir> [--observe observers/<name>.yaml] [--yes]",
+      "  npm run sim -- verify <run dir> [--respot N]",
     ].join("\n"),
   );
   process.exit(2);
@@ -41,10 +47,17 @@ type Flags = ConfigOverrides & {
   seedStart: number;
   label?: string;
   observe?: string;
+  respot: number;
 };
 
 function parseFlags(rest: string[]): Flags {
-  const flags: Flags = { yes: false, n: 1, concurrency: 5, seedStart: 1 };
+  const flags: Flags = {
+    yes: false,
+    n: 1,
+    concurrency: 5,
+    seedStart: 1,
+    respot: 0,
+  };
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
     if (flag === "--yes") {
@@ -73,6 +86,9 @@ function parseFlags(rest: string[]): Flags {
         break;
       case "--observe":
         flags.observe = value;
+        break;
+      case "--respot":
+        flags.respot = Number(value);
         break;
       case "--n":
         flags.n = Number(value);
@@ -256,6 +272,99 @@ async function commandAnalyze(target: string, flags: Flags): Promise<void> {
     await commandObserve(target, flags.observe, flags.yes);
 }
 
+type LoggedCall = {
+  t: number;
+  agent: string;
+  request: { system: string; blocks: string[] };
+  response: { text?: string; error?: string };
+};
+
+async function commandVerify(target: string, flags: Flags): Promise<void> {
+  const report = verifyRun(target);
+  console.log(
+    `verify ${target} — provider ${report.provider}, model ${report.model}`,
+  );
+  for (const check of report.checks)
+    console.log(`  [${check.status}] ${check.name}: ${check.detail}`);
+  for (const line of report.externalCrossCheck) console.log(`  ${line}`);
+  for (const sample of report.resumeSamples) console.log(`  try: ${sample}`);
+  if (!report.ok) process.exitCode = 1;
+
+  if (flags.respot > 0) {
+    // re-send N randomly chosen logged requests to the live provider NOW; a
+    // fresh reply with a fresh server id demonstrates the endpoint is real
+    // and the logged request shape genuinely produces model output
+    const resolved = JSON.parse(
+      readFileSync(join(target, "config.resolved.json"), "utf8"),
+    ) as {
+      model: {
+        provider: "mock" | "anthropic" | "claude_code" | "openai";
+        name: string;
+        per_agent?: Record<string, { provider?: string; name: string }>;
+      };
+      moderator?: { provider?: string; model: string };
+    };
+    if (resolved.model.provider === "mock") {
+      console.log("respot: mock run, nothing to re-send");
+      return;
+    }
+    const okCalls = readFileSync(join(target, "calls.jsonl"), "utf8")
+      .split("\n")
+      .filter((line) => line !== "")
+      .map((line) => JSON.parse(line) as LoggedCall)
+      .filter((call) => call.response.error === undefined);
+    const picked = [...okCalls]
+      .sort(() => 0.5 - Math.random())
+      .slice(0, Math.min(flags.respot, okCalls.length));
+    for (const call of picked) {
+      const agent = call.agent;
+      const override = resolved.model.per_agent?.[agent];
+      const spec =
+        agent === "moderator" && resolved.moderator
+          ? {
+              provider: (resolved.moderator.provider ??
+                resolved.model.provider) as
+                | "anthropic"
+                | "claude_code"
+                | "openai",
+              model: resolved.moderator.model,
+            }
+          : {
+              provider: (override?.provider ?? resolved.model.provider) as
+                | "anthropic"
+                | "claude_code"
+                | "openai",
+              model: override?.name ?? resolved.model.name,
+            };
+      await guardCredentials([spec.provider], spec.model);
+      const provider = makeProvider({ ...spec, seed: 1 }, providerKeys());
+      console.log(
+        `\nrespot ${agent} @ t=${call.t} (${spec.provider}/${spec.model})`,
+      );
+      const started = Date.now();
+      const fresh = await provider.complete({
+        system: call.request.system,
+        blocks: call.request.blocks,
+        cacheableBlocks: 0,
+        maxTokens: 200,
+        temperature: 1,
+      });
+      const raw = fresh.raw as Record<string, unknown>;
+      const freshId = String(raw.session_id ?? raw.id ?? "(no id)");
+      const oldText = String(call.response.text ?? "");
+      console.log(`  then: ${oldText.slice(0, 120).replace(/\n/g, " ")}`);
+      console.log(
+        `  now (${Date.now() - started} ms, ${freshId}): ${fresh.text
+          .slice(0, 120)
+          .replace(/\n/g, " ")}`,
+      );
+    }
+    console.log(
+      "\nreplies differ (temperature, time) — the point is a live endpoint answered the exact logged request.",
+    );
+  }
+}
+
 async function main(): Promise<void> {
   const [command, target, ...rest] = process.argv.slice(2);
   if (command === undefined || target === undefined) usage();
@@ -263,6 +372,7 @@ async function main(): Promise<void> {
   if (command === "run") await commandRun(target, flags);
   else if (command === "batch") await commandBatch(target, flags);
   else if (command === "analyze") await commandAnalyze(target, flags);
+  else if (command === "verify") await commandVerify(target, flags);
   else usage();
 }
 

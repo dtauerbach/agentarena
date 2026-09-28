@@ -44,7 +44,17 @@
   gallery + per-game pages (description field in base.yaml, variation
   cards, that game's recent runs); /discover = observer reports across
   batches + recent societies; nav create·play·discover·lab. 8 e2e flows.
-- Next: M4 (verify tooling). Newest Opus id verified: `claude-opus-5`.
+- **M4 accepted (2026-09-28): hard verifiability.** Standalone verifier
+  (src/lib/sim/verify.ts, zero engine imports): post↔call tracing,
+  server-id presence/uniqueness, latency floor, wall-clock coherence, token
+  reconciliation, claude-code session files. First live mafia run: 7/7 PASS
+  (121/121 sessions independently resumable). Tamper test (forged tokens +
+  deleted call) FAILs + exit 1. `verify --respot N` re-sends logged requests
+  live (verified: fresh replies + fresh session ids). anthropic provider now
+  captures the request-id HTTP header. UI: MOCK banner in watch mode,
+  Verify button + report in debug. docs/VERIFICATION.md explains what each
+  layer proves and the external cross-checks (claude.ai usage / console).
+- All four M-milestones of the 2026-09-28 plan are accepted.
 
 ## Decisions
 

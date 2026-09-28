@@ -25,41 +25,43 @@ export function makeAnthropicProvider(options: AnthropicOptions): Provider {
       // two cache breakpoints: the shared system prompt, and the last
       // complete board block — the shared prefix is then reused across
       // agents and wakes (SPEC §10)
-      const response = await client.messages.create({
-        model: options.model,
-        max_tokens: req.maxTokens,
-        temperature: req.temperature,
-        ...(options.webTools === true
-          ? {
-              tools: [
-                {
-                  type: "web_search_20250305" as const,
-                  name: "web_search" as const,
-                  max_uses: 3,
-                },
-              ],
-            }
-          : {}),
-        system: [
-          {
-            type: "text" as const,
-            text: req.system,
-            cache_control: { type: "ephemeral" as const },
-          },
-        ],
-        messages: [
-          {
-            role: "user",
-            content: req.blocks.map((text, i) => ({
+      const { data: response, response: http } = await client.messages
+        .create({
+          model: options.model,
+          max_tokens: req.maxTokens,
+          temperature: req.temperature,
+          ...(options.webTools === true
+            ? {
+                tools: [
+                  {
+                    type: "web_search_20250305" as const,
+                    name: "web_search" as const,
+                    max_uses: 3,
+                  },
+                ],
+              }
+            : {}),
+          system: [
+            {
               type: "text" as const,
-              text,
-              ...(i === req.cacheableBlocks - 1
-                ? { cache_control: { type: "ephemeral" as const } }
-                : {}),
-            })),
-          },
-        ],
-      });
+              text: req.system,
+              cache_control: { type: "ephemeral" as const },
+            },
+          ],
+          messages: [
+            {
+              role: "user",
+              content: req.blocks.map((text, i) => ({
+                type: "text" as const,
+                text,
+                ...(i === req.cacheableBlocks - 1
+                  ? { cache_control: { type: "ephemeral" as const } }
+                  : {}),
+              })),
+            },
+          ],
+        })
+        .withResponse();
       const text = response.content
         .filter((block) => block.type === "text")
         .map((block) => block.text)
@@ -72,7 +74,12 @@ export function makeAnthropicProvider(options: AnthropicOptions): Provider {
           cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
           cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
         },
-        raw: response,
+        // body plus the HTTP request-id header — a second server-issued
+        // identifier the M4 verifier and Anthropic's own logs can match
+        raw: {
+          ...(JSON.parse(JSON.stringify(response)) as Record<string, unknown>),
+          _request_id: http.headers.get("request-id") ?? undefined,
+        },
       };
     },
   };

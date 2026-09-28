@@ -218,6 +218,20 @@ export function RunViewer({ runId }: { runId: string }) {
   const [debug, setDebug] = useState(false);
   const [calls, setCalls] = useState<Call[] | null>(null);
   const [callsPath, setCallsPath] = useState<string | null>(null);
+  const [verify, setVerify] = useState<{
+    ok: boolean;
+    checks: { name: string; status: string; detail: string }[];
+    resumeSamples: string[];
+    externalCrossCheck: string[];
+  } | null>(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+
+  const runVerify = useCallback(async () => {
+    setVerifyBusy(true);
+    const response = await fetch(`/api/runs/${runId}/verify`);
+    if (response.ok) setVerify((await response.json()) as typeof verify);
+    setVerifyBusy(false);
+  }, [runId]);
 
   const token = useMemo(() => crypto.randomUUID(), []);
   const pace = useRef({
@@ -479,6 +493,11 @@ export function RunViewer({ runId }: { runId: string }) {
         </div>
       </div>
 
+      {meta?.provider === "mock" && (
+        <div className="rounded-lg border border-dashed bg-muted/40 p-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Mock run — canned replies, no real models involved
+        </div>
+      )}
       {providerErrors.count > 0 && (
         <div className="rounded-lg border border-destructive bg-destructive/10 p-3 text-sm">
           <p className="font-semibold text-destructive">
@@ -519,6 +538,47 @@ export function RunViewer({ runId }: { runId: string }) {
             latency, and token counts, logged as it happened. Spot-check ids
             against your provider records; the mock provider labels itself.
           </p>
+          <div className="mt-2 space-y-1">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-6 px-2 text-xs"
+              disabled={verifyBusy || status === "running"}
+              onClick={() => void runVerify()}
+            >
+              {verifyBusy
+                ? "Verifying…"
+                : status === "running"
+                  ? "Verify (after the run ends)"
+                  : "Verify this run"}
+            </Button>
+            {verify && (
+              <div
+                className={`rounded border p-2 ${verify.ok ? "border-green-600/40" : "border-destructive"}`}
+              >
+                <p className="font-semibold">
+                  {verify.ok
+                    ? "All checks passed"
+                    : "VERIFICATION FAILED — see below"}
+                </p>
+                {verify.checks.map((check) => (
+                  <p key={check.name} className="font-mono">
+                    [{check.status}] {check.name}: {check.detail}
+                  </p>
+                ))}
+                {verify.externalCrossCheck.map((line) => (
+                  <p key={line} className="text-muted-foreground">
+                    {line}
+                  </p>
+                ))}
+                {verify.resumeSamples.map((sample) => (
+                  <p key={sample} className="font-mono text-muted-foreground">
+                    {sample}
+                  </p>
+                ))}
+              </div>
+            )}
+          </div>
           {calls && calls.length > 0 && (
             <details className="mt-2">
               <summary className="cursor-pointer select-none">

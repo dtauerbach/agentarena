@@ -127,6 +127,7 @@ Keep this list current. `npm run check` must always pass.
 - `npm run sim -- run experiments/nogame/A_baseline.yaml [--provider mock] [--duration SEC] [--seed N]`
 - `npm run sim -- batch experiments/nogame/J_batch.yaml --n 50 --concurrency 5 [--yes]`
 - `npm run sim -- analyze <runs/dir | batch dir> [--observe observers/<name>.yaml --yes]`
+- `npm run sim -- verify runs/<dir> [--respot N]` — anti-simulation checks (docs/VERIFICATION.md)
 
 ## Style
 
