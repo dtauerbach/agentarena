@@ -2,77 +2,24 @@
 
 ## Status right now
 
-- W0 + W1 done; W2 code-complete, live acceptance pending an API key.
-- Web app at http://localhost:$PORT: dashboard, experiment pages, launch
-  (mock or anthropic-with-confirm), live paced SSE viewer with speed/pause/
-  step/hold + operator panel, replay of finished runs.
-- `npm run check` green (45 unit tests); `npx playwright test` green (2 e2e).
-- Headless: `npm run sim -- run experiments/nogame/A_baseline.yaml --provider
-  mock --duration 600`; live runs print an estimate and enforce
-  ARENA_BUDGET_USD (default 5, `--yes` to override).
-- **All milestones W0–W4 accepted**, including the live checks: a live 900 s
-  A_baseline run on the `claude_code` provider (23 posts, browser-watched,
-  cost shown) with 76k cache-read tokens (W4 cache check).
-- Web app at http://localhost:$PORT: experiments + YAML editor with validate/
-  duplicate, mock/live launcher with cost confirm, live paced SSE viewer +
-  operator panel, replay, mock batches with an analyzed batch.csv table.
-- Headless: `npm run sim -- run|batch|analyze ...`; batch acceptance passes
-  (J_batch n=5 mock → batch.csv 5 rows, batch_agents.csv 50 rows).
-- 54 unit tests + 4 e2e green; `npm run check` green.
-- Three providers: `mock` (free), `claude_code` (operator's Claude
-  subscription; the default), `anthropic` (API credits; org currently has
-  none — the `ant auth login` OAuth profile authenticates fine but Anthropic
-  bills raw /v1/messages to API credits, not subscriptions).
-- G1–G3 generalization done (2026-09-11): broadcast injections
-  (`agent: all` or a list), rooms (independent boards with membership and
-  per-room numbering + optional room prompt), and live operator moderation
-  (inject/mute/unmute/join/leave/stop from the run page, logged as events).
-  61 unit tests + 5 e2e green.
-- `experiments/mafia/` is the first consumer: 7 players, 2 mafia with a
-  private night room, phase clock via broadcast injections, operator as
-  moderator. `classic.yaml` runs under mock and validates in the catalog test.
-- UI reworked for two personas (2026-09-11): **Watch** mode (default) shows
-  only the public transcript; **Debug** toggle reveals silences, panels,
-  moderator, an audit box, and per-post receipts (exact request, raw output,
-  server-issued call id, wall clock, latency, tokens) served from
-  calls.jsonl via /api/runs/[id]/calls. Conditions open in a prompt-first
-  **Designer** (universal prompt / private notes / reveals / 3 knobs) that
-  patches the YAML minimally, comments preserved; raw YAML behind an
-  advanced fold. Mafia folded into "Other experiments"; nogame is the face.
-- Model choice (2026-09-11): the launch form has a model picker for live
-  providers (claude_code and anthropic), fed from experiments/pricing.yaml —
-  add a model there and it appears in the UI. Verified claude-sonnet-4-6 via
-  claude_code end-to-end. Haiku stays the config default.
-- Landing page is now a website: hero + variation cards (humanized titles) +
-  recent-society cards; the engineer's view (all runs, batches, raw paths)
-  moved to /lab. Nav: variations · societies · lab.
-- Parse refinement: a reply whose first OR last line is PASS is silence
-  (models often deliberate around their PASS); the deliberation stays in the
-  raw log, visible only in debug.
-- Q_gate variation (2026-09-11): wake.mode gate exposed as the "explicit
-  choice" mechanic — one-word ACT/PASS call before any writing, no prose
-  inference. parseGate now accepts a first-line ACT (symmetric with the
-  PASS rule). Designer gained a "how agents decide" knob. First live gate
-  run (haiku, 600 s): 32 wakes, 32 PASSes, zero posts — the explicit
-  framing collapsed participation on an empty board entirely.
-- Nameable runs + heterogeneous societies (2026-09-11): launch form has a
-  "run name" field (slug lands in the run dir, label shown everywhere);
-  model.per_agent lets each agent run a different model/provider, edited in
-  the designer's "Who runs on what" section. New openai provider
-  (OpenAI-compatible fetch, OPENAI_API_KEY/OPENAI_BASE_URL; untested live).
-  Mock runs stay all-mock regardless of overrides. Verified live:
-  "haiku vs sonnet" run with B and E on sonnet-4-6, receipts confirm
-  per-agent routing. Estimates use the default model's rates when mixed.
-- Internet access knob (2026-09-11): `tools.web` (off by default) gives
-  agents read-only web search/fetch — claude_code via
-  --tools/--allowedTools "WebSearch,WebFetch" with 4 turns (both flags
-  needed: availability and permission are separate gates in -p mode);
-  anthropic via the server-side web_search tool (3 uses/wake). Verified: a
-  flagged call really searches (modelUsage.webSearchRequests; the top-level
-  server_tool_use counter misses subagent searches — receipts sum both).
-  W_connected variation ships it; the closed-world caveat is documented in
-  SPEC §10 and the designer checkbox. Openai provider: unsupported for now.
-- Next: iterate nogame conditions with the designer; W5 extras if wanted.
+- All original milestones W0–W4 accepted (engine, web app, live runs on the
+  `claude_code` subscription provider, batches, metrics, caching) plus the
+  G-series generalization (broadcast injections, rooms, operator moderation)
+  and the 2026-09-11 wave: watch/debug viewer with audit receipts,
+  prompt-first designer, model picker + per-agent models, nameable runs,
+  Q_gate, `tools.web`, openai-compatible provider (untested live).
+- Web app at http://localhost:$PORT — home (hero, variations, societies),
+  /lab (all runs + batches), designer per variation, live SSE viewer with
+  replay. Headless: `npm run sim -- run|batch|analyze`.
+- Providers: `mock` (free), `claude_code` (subscription; default),
+  `anthropic` (API credits; org currently unfunded), `openai` (untested).
+- **Current work: M-series (plan of 2026-09-28)** — M1 automated moderator
+  (auto-Mafia + mechanical tallies + trust quick-fixes), M2 live batches +
+  corpus observer, M3 three-door UI, M4 verifiability tooling. Newest Opus
+  id verified 2026-09-28: `claude-opus-5` (5-5/5-1 do not resolve).
+- Known issue being fixed in M1: a run whose calls all fail (e.g. expired
+  Claude Code login — happened 2026-09-18) renders as an empty board in
+  watch mode; error banner + pre-launch credential probe land with M1.
 
 ## Decisions
 
