@@ -116,6 +116,47 @@ describe("config loading", () => {
     expect(config.moderator?.provider).toBe("codex");
   });
 
+  it("a lineup deals models onto seats by seed, reproducibly", () => {
+    const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
+    const file = join(dir, "lineup.yaml");
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/mafia/classic.yaml")}\nname: lineup\nmodel:\n  lineup:\n    - { provider: claude_code, name: claude-sonnet-5, count: 4 }\n    - { provider: codex, name: gpt-5.6-terra, count: 3 }\n`,
+    );
+    const deal = (seed: number) =>
+      Object.values(loadConfig(file, { seed }).model.per_agent).map(
+        (seat) => seat.name,
+      );
+    expect(deal(1)).toEqual(deal(1));
+    expect(deal(1).filter((name) => name === "claude-sonnet-5")).toHaveLength(
+      4,
+    );
+    expect(deal(1).filter((name) => name === "gpt-5.6-terra")).toHaveLength(3);
+    const deals = new Set(
+      [1, 2, 3, 4, 5, 6].map((seed) => deal(seed).join(",")),
+    );
+    expect(deals.size).toBeGreaterThan(1);
+    // explicit launch-time seats replace the lineup
+    const seated = loadConfig(file, {
+      perAgent: { Bob: { provider: "claude_code", name: "claude-opus-5" } },
+    });
+    expect(Object.keys(seated.model.per_agent)).toEqual(["Bob"]);
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/mafia/classic.yaml")}\nname: lineup\nmodel:\n  lineup:\n    - { name: claude-sonnet-5, count: 3 }\n`,
+    );
+    expect(() => loadConfig(file)).toThrow(/counts sum to 3/);
+  });
+
+  it("roles and outcome patterns are validated against the cast", () => {
+    const mafia = loadConfig("experiments/mafia/classic.yaml");
+    expect(mafia.roles.mafia).toEqual(["Bob", "Eve"]);
+    expect(mafia.metrics.outcomes.map((o) => o.name)).toEqual([
+      "village",
+      "mafia",
+    ]);
+  });
+
   it("viewer.moves must name a known room and a valid pattern", () => {
     const mafia = loadConfig("experiments/mafia/classic.yaml");
     expect(mafia.viewer.moves.map((m) => m.name)).toEqual(["vote", "kill"]);

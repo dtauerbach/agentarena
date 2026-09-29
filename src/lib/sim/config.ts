@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { makeRng } from "./rng";
 
 // Prompt-text fields have no defaults here on purpose (hard rule 3): every
 // string an agent reads must come from the experiment's YAML, so the schema
@@ -60,6 +61,22 @@ export const configSchema = z.strictObject({
       max_tokens: z.number().int().positive().default(100),
       thinking: thinkingSchema.default("off"),
       effort: effortSchema.optional(),
+      // a pool of models dealt onto the seats by a seeded shuffle, so model
+      // is not confounded with name or role across a batch; counts must sum
+      // to agents.count. The deal lands in per_agent of the resolved config.
+      lineup: z
+        .array(
+          z.strictObject({
+            provider: z
+              .enum(["anthropic", "claude_code", "codex", "openai"])
+              .optional(),
+            name: z.string().min(1),
+            count: z.number().int().positive(),
+            thinking: thinkingSchema.optional(),
+            effort: effortSchema.optional(),
+          }),
+        )
+        .default([]),
       per_agent: z
         .record(
           z.string(),
@@ -162,6 +179,9 @@ export const configSchema = z.strictObject({
     .prefault({}),
   common_prompt: z.string(),
   private_prompts: z.record(z.string(), z.string()).default({}),
+  // role name -> players, for analysis and the viewer only; what a player is
+  // told about its role is still its private prompt
+  roles: z.record(z.string(), z.array(z.string())).default({}),
   injections: z
     .array(
       z.strictObject({
@@ -225,6 +245,20 @@ export const configSchema = z.strictObject({
       bucket_seconds: z.number().positive().default(300),
       concurrent_window: z.number().positive().default(10),
       meta_talk_patterns: z.array(z.string()).default([]),
+      // how analysis reads a game's result off the record: the first
+      // announcement (injection to more than one player) matching a pattern
+      // names the outcome; `winners` lists the roles on the winning side.
+      // Counting configured patterns after the fact — the engine never
+      // sees these.
+      outcomes: z
+        .array(
+          z.strictObject({
+            name: z.string().min(1),
+            pattern: z.string().min(1),
+            winners: z.array(z.string()).default([]),
+          }),
+        )
+        .default([]),
     })
     .prefault({}),
   viewer: z
@@ -331,8 +365,14 @@ export function loadConfig(
     raw.model = { ...model, provider: overrides.provider };
   if (overrides.model !== undefined)
     raw.model = { ...(raw.model as RawDoc), name: overrides.model };
-  if (overrides.perAgent !== undefined) {
-    const current = (raw.model as RawDoc | undefined) ?? {};
+  if (
+    overrides.perAgent !== undefined &&
+    Object.keys(overrides.perAgent).length > 0
+  ) {
+    // explicit launch-time seats replace a configured lineup
+    const { lineup: _lineup, ...current } = ((raw.model as
+      | RawDoc
+      | undefined) ?? {}) as RawDoc;
     raw.model = {
       ...current,
       per_agent: {
@@ -445,6 +485,41 @@ export function loadConfig(
   for (const name of Object.keys(config.model.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`model.per_agent: unknown agent "${name}"`);
+  if (config.model.lineup.length > 0) {
+    if (Object.keys(config.model.per_agent).length > 0)
+      throw new Error(
+        "model.lineup: cannot be combined with model.per_agent; use one",
+      );
+    const seats = config.model.lineup.flatMap(({ count, ...choice }) =>
+      Array.from({ length: count }, () => choice),
+    );
+    if (seats.length !== agentNames.length)
+      throw new Error(
+        `model.lineup: counts sum to ${seats.length} for agents.count ${agentNames.length}`,
+      );
+    const dealt = makeRng(config.seed).fork("lineup").shuffle(seats);
+    config.model.per_agent = Object.fromEntries(
+      agentNames.map((name, i) => [name, dealt[i] as (typeof dealt)[number]]),
+    );
+  }
+  for (const [role, members] of Object.entries(config.roles))
+    for (const member of members)
+      if (!agentNames.includes(member))
+        throw new Error(`roles.${role}: unknown agent "${member}"`);
+  for (const outcome of config.metrics.outcomes) {
+    try {
+      new RegExp(outcome.pattern, "i");
+    } catch {
+      throw new Error(
+        `metrics.outcomes.${outcome.name}: invalid pattern "${outcome.pattern}"`,
+      );
+    }
+    for (const role of outcome.winners)
+      if (!(role in config.roles))
+        throw new Error(
+          `metrics.outcomes.${outcome.name}: unknown role "${role}"`,
+        );
+  }
   for (const name of Object.keys(config.compose.per_agent))
     if (!agentNames.includes(name))
       throw new Error(`compose.per_agent: unknown agent "${name}"`);

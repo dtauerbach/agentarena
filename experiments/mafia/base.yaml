@@ -99,6 +99,12 @@ private_prompts:
   Frank: "You are a villager."
   Grace: "You are a villager."
 
+# For analysis and the viewer only; players learn their role from their
+# private prompt above.
+roles:
+  mafia: [Bob, Eve]
+  villager: [Alice, Charlie, Dana, Frank, Grace]
+
 # Only the opening bell is scheduled; the moderator announces everything else.
 injections:
   - at: 0
@@ -245,3 +251,11 @@ metrics:
   bucket_seconds: 300
   concurrent_window: 10
   meta_talk_patterns: ["i am mafia", "i'm mafia", "as the mafia"]
+  # the referee's own words are the result; analysis just recognizes them
+  outcomes:
+    - name: village
+      pattern: "the village wins"
+      winners: [villager]
+    - name: mafia
+      pattern: "the mafia win"
+      winners: [mafia]

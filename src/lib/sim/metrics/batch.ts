@@ -1,7 +1,15 @@
-import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { AgentMetrics, RunMetrics } from "./analyze";
 import { analyzeRun } from "./analyze";
+import type { GameRecord } from "./outcome";
+import { readGameRecord } from "./outcome";
 
 function csvEscape(value: unknown): string {
   const text = String(value ?? "");
@@ -18,12 +26,21 @@ export function toCsv(rows: Record<string, unknown>[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-function runRow(dir: string, metrics: RunMetrics): Record<string, unknown> {
+function runRow(
+  dir: string,
+  metrics: RunMetrics,
+  game: GameRecord,
+): Record<string, unknown> {
   return {
     run_dir: dir,
     name: metrics.run,
     seed: metrics.seed,
     duration: metrics.duration,
+    outcome: game.outcome,
+    outcome_t: game.outcome_t ?? "",
+    end_t: game.end_t ?? "",
+    eliminated: game.eliminations.map((e) => e.agent).join(";"),
+    provider_errors: game.provider_errors,
     posts: metrics.posts,
     wakes: metrics.wakes,
     silence_rate: metrics.silence_rate.toFixed(4),
@@ -47,11 +64,20 @@ function agentRow(
   dir: string,
   metrics: RunMetrics,
   agent: AgentMetrics,
+  game: GameRecord,
 ): Record<string, unknown> {
+  const seat = game.seats.find((s) => s.agent === agent.agent);
   return {
     run_dir: dir,
     seed: metrics.seed,
     agent: agent.agent,
+    role: seat?.role ?? "",
+    provider: seat?.provider ?? "",
+    model: seat?.model ?? "",
+    outcome: game.outcome,
+    won: seat?.won === null || seat === undefined ? "" : seat.won ? 1 : 0,
+    survived: seat?.survived === false ? 0 : 1,
+    eliminated_at: seat?.eliminated_at ?? "",
     wakes: agent.wakes,
     posts: agent.posts,
     silences: agent.silences,
@@ -70,32 +96,138 @@ function agentRow(
   };
 }
 
+function isAborted(runDir: string): boolean {
+  const path = join(runDir, "events.jsonl");
+  if (!existsSync(path)) return false;
+  return /"kind":"run_end"[^\n]*"aborted":true/.test(
+    readFileSync(path, "utf8"),
+  );
+}
+
+function isFinished(runDir: string): boolean {
+  const path = join(runDir, "events.jsonl");
+  return (
+    existsSync(path) && readFileSync(path, "utf8").includes('"kind":"run_end"')
+  );
+}
+
+// completed games only: a run aborted by infrastructure failure, or still in
+// flight, is not part of the corpus
 export function listBatchRunDirs(batchDir: string): string[] {
   return readdirSync(batchDir)
     .filter((entry) => {
       const dir = join(batchDir, entry);
       return (
         statSync(dir).isDirectory() &&
-        existsSync(join(dir, "config.resolved.json"))
+        existsSync(join(dir, "config.resolved.json")) &&
+        isFinished(dir) &&
+        !isAborted(dir)
       );
     })
     .sort();
 }
 
-// analyze every run in a batch dir and write batch.csv + batch_agents.csv
+export type BatchSummary = {
+  games: number;
+  outcomes: Record<string, number>;
+  mean_end_t: number | null;
+  provider_errors: number;
+  // win rate of each model in each role: seats won / seats played
+  by_model_role: {
+    model: string;
+    role: string;
+    seats: number;
+    wins: number;
+    win_rate: number;
+    survival_rate: number;
+  }[];
+  tokens_in: number;
+  tokens_out: number;
+};
+
+export function summarizeBatch(
+  games: { game: GameRecord; metrics: RunMetrics }[],
+): BatchSummary {
+  const outcomes: Record<string, number> = {};
+  const cells = new Map<
+    string,
+    {
+      model: string;
+      role: string;
+      seats: number;
+      wins: number;
+      survived: number;
+    }
+  >();
+  for (const { game } of games) {
+    outcomes[game.outcome] = (outcomes[game.outcome] ?? 0) + 1;
+    for (const seat of game.seats) {
+      if (seat.won === null) continue;
+      const key = `${seat.model}|${seat.role}`;
+      const cell = cells.get(key) ?? {
+        model: seat.model,
+        role: seat.role,
+        seats: 0,
+        wins: 0,
+        survived: 0,
+      };
+      cell.seats += 1;
+      if (seat.won) cell.wins += 1;
+      if (seat.survived) cell.survived += 1;
+      cells.set(key, cell);
+    }
+  }
+  const ends = games.flatMap(({ game }) =>
+    game.end_t === null ? [] : [game.end_t],
+  );
+  return {
+    games: games.length,
+    outcomes,
+    mean_end_t:
+      ends.length === 0 ? null : ends.reduce((a, b) => a + b, 0) / ends.length,
+    provider_errors: games.reduce((n, g) => n + g.game.provider_errors, 0),
+    by_model_role: [...cells.values()]
+      .map((c) => ({
+        model: c.model,
+        role: c.role,
+        seats: c.seats,
+        wins: c.wins,
+        win_rate: c.wins / c.seats,
+        survival_rate: c.survived / c.seats,
+      }))
+      .sort(
+        (a, b) =>
+          a.role.localeCompare(b.role) || a.model.localeCompare(b.model),
+      ),
+    tokens_in: games.reduce((n, g) => n + g.metrics.tokens_in, 0),
+    tokens_out: games.reduce((n, g) => n + g.metrics.tokens_out, 0),
+  };
+}
+
+// analyze every completed run in a batch dir and write batch.csv,
+// batch_agents.csv and batch_summary.json
 export function analyzeBatch(batchDir: string): {
   runs: number;
   agents: number;
+  summary: BatchSummary;
 } {
   const runRows: Record<string, unknown>[] = [];
   const agentRows: Record<string, unknown>[] = [];
+  const games: { game: GameRecord; metrics: RunMetrics }[] = [];
   for (const entry of listBatchRunDirs(batchDir)) {
     const metrics = analyzeRun(join(batchDir, entry));
-    runRows.push(runRow(entry, metrics));
+    const game = readGameRecord(join(batchDir, entry));
+    games.push({ game, metrics });
+    runRows.push(runRow(entry, metrics, game));
     for (const agent of metrics.agents)
-      agentRows.push(agentRow(entry, metrics, agent));
+      agentRows.push(agentRow(entry, metrics, agent, game));
   }
+  const summary = summarizeBatch(games);
   writeFileSync(join(batchDir, "batch.csv"), toCsv(runRows));
   writeFileSync(join(batchDir, "batch_agents.csv"), toCsv(agentRows));
-  return { runs: runRows.length, agents: agentRows.length };
+  writeFileSync(
+    join(batchDir, "batch_summary.json"),
+    JSON.stringify(summary, null, 2),
+  );
+  return { runs: runRows.length, agents: agentRows.length, summary };
 }
