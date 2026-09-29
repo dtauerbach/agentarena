@@ -1,6 +1,7 @@
 # --- sandbox ---
 .sandbox/env
 .sandbox/dev.log
+.sandbox/codex-home/
 data/
 
 # --- node / next ---

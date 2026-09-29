@@ -53,7 +53,7 @@ export const configSchema = z.strictObject({
   model: z
     .strictObject({
       provider: z
-        .enum(["anthropic", "claude_code", "mock"])
+        .enum(["anthropic", "claude_code", "codex", "mock"])
         .default("anthropic"),
       name: z.string(),
       temperature: z.number().min(0).max(2).default(1.0),
@@ -64,7 +64,9 @@ export const configSchema = z.strictObject({
         .record(
           z.string(),
           z.strictObject({
-            provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
+            provider: z
+              .enum(["anthropic", "claude_code", "codex", "openai"])
+              .optional(),
             name: z.string(),
             thinking: thinkingSchema.optional(),
             effort: effortSchema.optional(),
@@ -189,7 +191,9 @@ export const configSchema = z.strictObject({
         .strictObject({ open: z.string(), closed: z.string() })
         .optional(),
       model: z.string(),
-      provider: z.enum(["anthropic", "claude_code", "openai"]).optional(),
+      provider: z
+        .enum(["anthropic", "claude_code", "codex", "openai"])
+        .optional(),
       cadence: z.number().positive(),
       temperature: z.number().min(0).max(2).default(0),
       max_tokens: z.number().int().positive().default(400),
@@ -244,7 +248,7 @@ export const configSchema = z.strictObject({
 export type Config = z.infer<typeof configSchema> & { agentNames: string[] };
 
 export type ModelChoice = {
-  provider?: "anthropic" | "claude_code" | "openai";
+  provider?: "anthropic" | "claude_code" | "codex" | "openai";
   name: string;
 };
 
@@ -254,7 +258,7 @@ export type Effort = z.infer<typeof effortSchema>;
 export type ConfigOverrides = {
   duration?: number;
   seed?: number;
-  provider?: "anthropic" | "claude_code" | "openai" | "mock";
+  provider?: "anthropic" | "claude_code" | "codex" | "openai" | "mock";
   model?: string;
   // launch-time per-player models, merged over model.per_agent
   perAgent?: Record<string, ModelChoice>;
@@ -451,8 +455,10 @@ export function loadConfig(
         (o) => o.provider ?? config.model.provider,
       ),
     ]);
-    if (providers.has("openai"))
-      throw new Error("tools.web: not supported for the openai provider yet");
+    if (providers.has("openai") || providers.has("codex"))
+      throw new Error(
+        "tools.web: not supported for the openai and codex providers yet",
+      );
   }
   if (config.model.name === "" && config.model.provider !== "mock")
     throw new Error(

@@ -5,16 +5,19 @@ import { experimentPath } from "@/lib/experiments";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
 import { loadPricing } from "@/lib/sim/pricing";
+import { listCodexModels } from "@/lib/sim/providers/codex";
 
 const modelChoiceSchema = z.object({
-  provider: z.enum(["claude_code", "anthropic", "openai"]).optional(),
+  provider: z.enum(["claude_code", "codex", "anthropic", "openai"]).optional(),
   name: z.string().min(1),
 });
 
 const estimateSchema = z.object({
   experiment: z.string(),
   file: z.string(),
-  provider: z.enum(["mock", "claude_code", "anthropic"]).default("anthropic"),
+  provider: z
+    .enum(["mock", "claude_code", "codex", "anthropic"])
+    .default("anthropic"),
   model: z.string().optional(),
   perAgent: z.record(z.string(), modelChoiceSchema).optional(),
   moderator: modelChoiceSchema.optional(),
@@ -60,9 +63,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       estimate,
       model: config.model.name,
       models: Object.keys(pricing),
+      codexModels: await listCodexModels(),
       hasKey: hasCredentialsFor(provider),
       credentials: {
         claude_code: hasCredentialsFor("claude_code"),
+        codex: hasCredentialsFor("codex"),
         anthropic: hasCredentialsFor("anthropic"),
         openai: hasCredentialsFor("openai"),
       },

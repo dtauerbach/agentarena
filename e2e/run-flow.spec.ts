@@ -259,9 +259,14 @@ test("mafia: per-player model pickers, two-room game view, move badges", async (
   await expect(page.locator("#player-Bob")).toHaveCount(0);
   await page.selectOption("#launch-provider", "claude_code");
   await expect(page.locator("#player-Bob")).toBeVisible();
-  await expect(page.locator("#player-Bob optgroup")).toHaveCount(2, {
+  // Claude subscription, ChatGPT subscription (codex), Anthropic API
+  await expect(page.locator("#player-Bob optgroup")).toHaveCount(3, {
     timeout: 10_000,
   });
+  await expect(page.locator("#player-Bob optgroup").nth(1)).toHaveAttribute(
+    "label",
+    /ChatGPT subscription via Codex/,
+  );
   await expect(page.locator("#player-Bob optgroup").first()).toHaveAttribute(
     "label",
     /Claude subscription/,

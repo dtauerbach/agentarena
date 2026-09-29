@@ -2,6 +2,7 @@ import type { Config, Effort, Thinking } from "../config";
 import type { Provider } from "../types";
 import { makeAnthropicProvider } from "./anthropic";
 import { makeClaudeCodeProvider } from "./claude-code";
+import { makeCodexProvider } from "./codex";
 import { makeMockProvider } from "./mock";
 import { makeOpenAIProvider } from "./openai";
 
@@ -12,7 +13,7 @@ export type ProviderKeys = {
 };
 
 export type ProviderSpec = {
-  provider: "mock" | "anthropic" | "claude_code" | "openai";
+  provider: "mock" | "anthropic" | "claude_code" | "codex" | "openai";
   model: string;
   seed?: number;
   webTools?: boolean;
@@ -31,6 +32,11 @@ export function makeProvider(spec: ProviderSpec, keys: ProviderKeys): Provider {
         model: spec.model,
         webTools: spec.webTools ?? false,
         thinking: spec.thinking ?? "off",
+        ...(spec.effort !== undefined ? { effort: spec.effort } : {}),
+      });
+    case "codex":
+      return makeCodexProvider({
+        model: spec.model,
         ...(spec.effort !== undefined ? { effort: spec.effort } : {}),
       });
     case "openai":
@@ -127,5 +133,15 @@ export function firstClaudeCodeModel(config: Config): string | undefined {
     if (override.provider === "claude_code") return override.name;
   if (config.moderator?.provider === "claude_code")
     return config.moderator.model;
+  return undefined;
+}
+
+// same idea for the codex CLI
+export function firstCodexModel(config: Config): string | undefined {
+  if (config.model.provider === "mock") return undefined;
+  if (config.model.provider === "codex") return config.model.name;
+  for (const override of Object.values(config.model.per_agent))
+    if (override.provider === "codex") return override.name;
+  if (config.moderator?.provider === "codex") return config.moderator.model;
   return undefined;
 }

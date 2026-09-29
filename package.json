@@ -27,6 +27,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
+    "@openai/codex": "^0.159.0",
     "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24.13.4",

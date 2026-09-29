@@ -9,7 +9,7 @@ type Injection = { at: number; agent: string; text: string };
 
 type ModelOverride = {
   agent: string;
-  provider: "" | "anthropic" | "claude_code" | "openai";
+  provider: "" | "anthropic" | "claude_code" | "codex" | "openai";
   name: string;
 };
 
@@ -350,6 +350,7 @@ export function Designer({ experiment, file, initial }: Props) {
               <option value="">same provider</option>
               <option value="claude_code">claude_code</option>
               <option value="anthropic">anthropic</option>
+              <option value="codex">codex</option>
               <option value="openai">openai</option>
             </select>
             <Input

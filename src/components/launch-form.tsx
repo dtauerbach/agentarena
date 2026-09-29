@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { agentColor } from "@/lib/agent-color";
 
-type ProviderChoice = "mock" | "claude_code" | "anthropic";
-type LiveProvider = "claude_code" | "anthropic" | "openai";
+type ProviderChoice = "mock" | "claude_code" | "codex" | "anthropic";
+type LiveProvider = "claude_code" | "codex" | "anthropic" | "openai";
 type ModelChoice = { provider?: LiveProvider; name: string };
 
 type Props = {
@@ -36,7 +36,7 @@ type Credentials = Record<LiveProvider, boolean>;
 // Claude model is either subscription usage (claude_code) or API credits
 // (anthropic). Non-Claude ids in pricing.yaml go to the OpenAI-compatible
 // group; add a row there and it appears here.
-function modelGroups(models: string[]) {
+function modelGroups(models: string[], codexModels: string[]) {
   const claude = models.filter((m) => m.startsWith("claude-"));
   const other = models.filter((m) => !m.startsWith("claude-"));
   // the prefix is part of the option text, so a closed dropdown still shows
@@ -52,6 +52,12 @@ function modelGroups(models: string[]) {
       label: "Claude subscription (usage, no dollars)",
       prefix: "",
       models: claude,
+    },
+    {
+      provider: "codex",
+      label: "ChatGPT subscription via Codex (usage, no dollars)",
+      prefix: "",
+      models: codexModels,
     },
     {
       provider: "anthropic",
@@ -99,6 +105,7 @@ export function LaunchForm({
   const [label, setLabel] = useState("");
   const [modelChoice, setModelChoice] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [codexModels, setCodexModels] = useState<string[]>([]);
   const [duration, setDuration] = useState(String(defaultDuration));
   const [seed, setSeed] = useState(String(defaultSeed));
   const [speed, setSpeed] = useState("10");
@@ -166,12 +173,14 @@ export function LaunchForm({
       estimate: Estimate;
       model: string;
       models?: string[];
+      codexModels?: string[];
       hasKey: boolean;
       credentials?: Credentials;
     };
     setEstimate(body.estimate);
     setModel(body.model);
     setModels(body.models ?? []);
+    setCodexModels(body.codexModels ?? []);
     setHasKey(body.hasKey);
     setCredentials(body.credentials ?? null);
   }, [
@@ -226,7 +235,13 @@ export function LaunchForm({
     }
   };
 
-  const groups = modelGroups(models);
+  const groups = modelGroups(models, codexModels);
+  // the run's default model has to be one the run's provider can serve
+  const defaultChoices =
+    provider === "codex"
+      ? codexModels
+      : models.filter((name) => name.startsWith("claude-"));
+  const defaultFits = model === "" || defaultChoices.includes(model);
   const chosenProviders = new Set<string>([
     runProvider,
     ...Object.values(perAgent).map((c) => c.provider ?? runProvider),
@@ -245,6 +260,7 @@ export function LaunchForm({
   const blocked =
     live &&
     (!hasKey ||
+      (!defaultFits && modelChoice === "") ||
       (spendsCredits && !confirm) ||
       missingProviders.length > 0 ||
       (spendsCredits && estimate?.overBudget === true && !overrideBudget));
@@ -318,7 +334,10 @@ export function LaunchForm({
             }}
           >
             <option value="mock">mock (free, canned replies)</option>
-            <option value="claude_code">claude_code (your subscription)</option>
+            <option value="claude_code">
+              claude_code (your Claude subscription)
+            </option>
+            <option value="codex">codex (your ChatGPT subscription)</option>
             <option value="anthropic">anthropic (API credits)</option>
           </select>
         </label>
@@ -334,8 +353,13 @@ export function LaunchForm({
               value={modelChoice}
               onChange={(e) => setModelChoice(e.target.value)}
             >
-              <option value="">default ({model || "from config"})</option>
-              {models
+              {defaultFits && (
+                <option value="">default ({model || "from config"})</option>
+              )}
+              {!defaultFits && modelChoice === "" && (
+                <option value="">pick a model for this provider…</option>
+              )}
+              {defaultChoices
                 .filter((name) => name !== model || modelChoice !== "")
                 .map((name) => (
                   <option key={name} value={name}>
@@ -536,6 +560,24 @@ export function LaunchForm({
             <p className="text-destructive">
               No Anthropic API credentials — add ANTHROPIC_API_KEY to .env.local
               or run <code>ant auth login</code>.
+            </p>
+          )}
+          {!hasKey && provider === "codex" && (
+            <p className="text-destructive">
+              Codex is not logged in in this environment. See docs/CODEX.md.
+            </p>
+          )}
+          {!defaultFits && modelChoice === "" && (
+            <p className="text-destructive">
+              This game&apos;s default model ({model}) is not a {provider}{" "}
+              model. Pick a default model above.
+            </p>
+          )}
+          {chosenProviders.has("codex") && (
+            <p className="text-xs text-muted-foreground">
+              Purity note: Codex keeps its own base system prompt under the
+              game&apos;s instructions, and temperature and max tokens are not
+              controllable. See docs/CODEX.md.
             </p>
           )}
           {!hasKey && provider === "claude_code" && (

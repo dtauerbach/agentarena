@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { hasCodexCredentials } from "@/lib/sim/providers/codex";
 
 // .env.local is Next's convention; load it for headless scripts too so the
 // sim script and the web app see the same secrets
@@ -88,6 +89,7 @@ export function hasClaudeCodeCredentials(): boolean {
 export function hasCredentialsFor(provider: string): boolean {
   if (provider === "mock") return true;
   if (provider === "claude_code") return hasClaudeCodeCredentials();
+  if (provider === "codex") return hasCodexCredentials();
   if (provider === "openai") return readOpenAIKey() !== undefined;
   return hasAnthropicCredentials();
 }
@@ -95,6 +97,8 @@ export function hasCredentialsFor(provider: string): boolean {
 export function missingCredentialsMessage(provider: string): string {
   if (provider === "claude_code")
     return "Claude Code is not logged in in this environment; run `claude` once to log in";
+  if (provider === "codex")
+    return "Codex is not logged in in this environment; run `CODEX_HOME=.sandbox/codex-home npx codex login --device-auth`";
   if (provider === "openai")
     return "no OpenAI credentials: add OPENAI_API_KEY (and optionally OPENAI_BASE_URL) to .env.local";
   return "no Anthropic credentials: add ANTHROPIC_API_KEY to .env.local or run `ant auth login`";

@@ -114,6 +114,15 @@
   cutoff to a village win at 1:05:00 — precisely the game the previous
   script had cut off "without a winner".
 
+- **2026-09-29 codex provider (ChatGPT subscription).** `codex` joins
+  `claude_code` as a subscription-billed provider: run-level, per player,
+  or moderator. CLI is a dev dependency, credentials in
+  `.sandbox/codex-home/` (gitignored, persistent). Input purity measured
+  with `codex debug prompt-input`: system prompt + wake prompt only; Codex's
+  base system prompt remains underneath (disclosed). Model list comes from
+  `codex debug models`. Setup guide: docs/CODEX.md. Pending the operator's
+  one-time device login before the first live call.
+
 ## Decisions
 
 - Observer is corpus-level (operator: "once per thousand games"), not
@@ -267,6 +276,9 @@
   this stays on the right side of hard rule 1. Empty referee tallies are
   hidden outside debug.
 
+- New dependency `@openai/codex` (dev): the Codex CLI itself, pinned in the
+  lockfile so it survives a sandbox recreate without a Dockerfile.
+
 ## Changelog
 
 - 2026-09-10: doc pivot + restructure; Next scaffold (Biome/Tailwind/shadcn,
@@ -292,3 +304,6 @@
 - 2026-09-28: room OPEN/CLOSE command + `rooms.<name>.closed`; mafia plays
   day/night cycles until a winner; viewer arrival ordering, announcement
   placement, banner wording; claude_code single retry on process failure.
+
+- 2026-09-29: codex provider, launch-form group + run-level option, model
+  catalog listing, pre-launch probe, docs/CODEX.md.

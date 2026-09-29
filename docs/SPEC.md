@@ -277,7 +277,7 @@ seed: 1                         # harness RNG only
 duration: 7200                  # simulated seconds
 concurrency: 5                  # parallel model calls
 model:
-  provider: anthropic           # anthropic | claude_code | openai | mock
+  provider: anthropic           # anthropic | claude_code | codex | openai | mock
   per_agent: {}                 # e.g. { B: { name: claude-sonnet-4-6 }, C: { provider: openai, name: gpt-6 } }
   name: claude-haiku-4-5   # verify current ids in the docs
   temperature: 1.0
@@ -408,6 +408,8 @@ interface Provider {
   logged in calls.jsonl). It deliberately breaks the closed-world premise —
   connected societies can import a real game instead of inventing one — so it
   is a condition, never a default. Not yet supported on openai.
+- `codex`: one `codex exec` subprocess per call, billed to the operator's
+  ChatGPT subscription. Setup, measured purity, and limits: docs/CODEX.md.
 - `openai`: OpenAI-compatible chat completions over fetch (OPENAI_API_KEY,
   optional OPENAI_BASE_URL), retries per this section; exists so a society
   can mix in non-Claude agents. Untested against a live key so far.

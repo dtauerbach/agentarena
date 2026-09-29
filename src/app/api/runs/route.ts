@@ -6,18 +6,25 @@ import { launchRun } from "@/lib/run-manager";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
 import { loadPricing } from "@/lib/sim/pricing";
-import { firstClaudeCodeModel, requiredProviders } from "@/lib/sim/providers";
+import {
+  firstClaudeCodeModel,
+  firstCodexModel,
+  requiredProviders,
+} from "@/lib/sim/providers";
 import { probeClaudeCode } from "@/lib/sim/providers/claude-code";
+import { probeCodex } from "@/lib/sim/providers/codex";
 
 const modelChoiceSchema = z.object({
-  provider: z.enum(["claude_code", "anthropic", "openai"]).optional(),
+  provider: z.enum(["claude_code", "codex", "anthropic", "openai"]).optional(),
   name: z.string().min(1),
 });
 
 const launchSchema = z.object({
   experiment: z.string(),
   file: z.string(),
-  provider: z.enum(["mock", "claude_code", "anthropic"]).default("mock"),
+  provider: z
+    .enum(["mock", "claude_code", "codex", "anthropic"])
+    .default("mock"),
   model: z.string().optional(),
   perAgent: z.record(z.string(), modelChoiceSchema).optional(),
   moderator: modelChoiceSchema.optional(),
@@ -96,6 +103,12 @@ export async function POST(request: Request): Promise<NextResponse> {
         probeModel !== undefined
       ) {
         const probeError = await probeClaudeCode(probeModel);
+        if (probeError !== null)
+          return NextResponse.json({ error: probeError }, { status: 400 });
+      }
+      const codexModel = firstCodexModel(config);
+      if (codexModel !== undefined) {
+        const probeError = await probeCodex(codexModel);
         if (probeError !== null)
           return NextResponse.json({ error: probeError }, { status: 400 });
       }

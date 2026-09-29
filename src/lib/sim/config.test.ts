@@ -80,7 +80,10 @@ describe("config loading", () => {
     expect(manual.rooms.night?.members).toEqual(["Bob", "Eve"]);
     const classic = loadConfig("experiments/mafia/classic.yaml");
     expect(classic.moderator?.tallies.map((t) => t.window)).toEqual([900, 600]);
-    expect(classic.rooms.night?.members).toEqual([]);
+    // seated but closed: the referee opens the night room at nightfall
+    expect(classic.rooms.night?.members).toEqual(["Bob", "Eve"]);
+    expect(classic.rooms.night?.closed).toBe(true);
+    expect(manual.rooms.night?.closed).toBe(false);
   });
 
   it("thinking and delimiter knobs parse, with launch-time thinking overrides", () => {
@@ -99,6 +102,18 @@ describe("config loading", () => {
       `extends: ${join(process.cwd(), BASE)}\nname: t\nmodel:\n  thinking: 100\n`,
     );
     expect(() => loadConfig(bad)).toThrow(/model.thinking/);
+  });
+
+  it("codex is a provider for the run, a player, or the moderator", () => {
+    const config = loadConfig("experiments/mafia/classic.yaml", {
+      provider: "codex",
+      model: "gpt-5.5",
+      perAgent: { Eve: { provider: "claude_code", name: "claude-opus-5" } },
+      moderator: { provider: "codex", name: "gpt-6-sol" },
+    });
+    expect(config.model.provider).toBe("codex");
+    expect(config.model.per_agent.Eve?.provider).toBe("claude_code");
+    expect(config.moderator?.provider).toBe("codex");
   });
 
   it("viewer.moves must name a known room and a valid pattern", () => {

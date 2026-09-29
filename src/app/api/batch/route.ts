@@ -15,7 +15,9 @@ const batchSchema = z.object({
   experiment: z.string(),
   file: z.string(),
   n: z.number().int().min(1).max(500),
-  provider: z.enum(["mock", "claude_code", "anthropic"]).default("mock"),
+  provider: z
+    .enum(["mock", "claude_code", "codex", "anthropic"])
+    .default("mock"),
   model: z.string().optional(),
   label: z.string().max(60).optional(),
   concurrency: z.number().int().min(1).max(20).default(5),
