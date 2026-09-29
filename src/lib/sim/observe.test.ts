@@ -3,8 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runBatch } from "./batch";
-import { listBatchRunDirs } from "./metrics/batch";
-import { buildCorpusBlocks, loadObserver, runObserver } from "./observe";
+import { analyzeBatch, listBatchRunDirs } from "./metrics/batch";
+import {
+  buildCorpusBlocks,
+  loadObserver,
+  renderRunDigest,
+  runObserver,
+} from "./observe";
 import { makeMockProvider } from "./providers/mock";
 
 let batchDir: string;
@@ -99,5 +104,68 @@ describe("corpus observer", () => {
     expect(typeof result.parse_error).toBe("string");
     expect(existsSync(join(dir, "observer.json"))).toBe(true);
     void garbler;
+  });
+});
+
+describe("two-stage observer for large batches", () => {
+  const rubric = loadObserver("observers/baseline.yaml");
+  const mockRubric = {
+    ...rubric,
+    provider: "mock" as const,
+    per_run:
+      rubric.per_run === undefined
+        ? undefined
+        : { ...rubric.per_run, provider: "mock" as const, gap_seconds: 30 },
+  };
+
+  it("the digest carries roster, result, room phases and private reasoning", () => {
+    const digest = renderRunDigest(runDirs[0] as string, mockRubric, false);
+    expect(digest).toContain("--- roster ---");
+    expect(digest).toContain("Bob: mafia, mock");
+    expect(digest).toContain("Alice: villager, mock");
+    expect(digest).toContain("--- result: none at");
+    // the mock writes a thought before the POST: marker
+    expect(digest).toContain("thinks, privately] (mock thinking)");
+    // a broadcast is one line addressed to all, not one per player
+    const opening = digest
+      .split("\n")
+      .filter((line) => line.includes("Day 1 begins"));
+    expect(opening).toHaveLength(1);
+    expect(opening[0]).toContain("all");
+  });
+
+  it("writes one cached note per game, then synthesizes over notes and stats", async () => {
+    const slept: number[] = [];
+    const { summary } = analyzeBatch(batchDir);
+    const first = await runObserver(
+      runDirs,
+      batchDir,
+      mockRubric,
+      {},
+      {
+        summary,
+        sleep: (seconds) => {
+          slept.push(seconds);
+          return Promise.resolve();
+        },
+      },
+    );
+    expect(first.notes).toMatchObject({ written: 2, reused: 0, failed: 0 });
+    expect(slept).toEqual([30, 30]);
+    for (const dir of runDirs)
+      expect(existsSync(join(dir, "observer-note.baseline.json"))).toBe(true);
+    expect(first.report?.summary).toBe("mock corpus summary");
+    // an interrupted pass resumes: nothing is rewritten the second time
+    const second = await runObserver(
+      runDirs,
+      batchDir,
+      mockRubric,
+      {},
+      {
+        summary,
+        sleep: () => Promise.resolve(),
+      },
+    );
+    expect(second.notes).toMatchObject({ written: 0, reused: 2, failed: 0 });
   });
 });

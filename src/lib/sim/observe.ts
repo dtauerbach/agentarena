@@ -3,6 +3,8 @@ import { basename, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { fill, renderClock } from "./board";
+import type { BatchSummary } from "./metrics/batch";
+import { readGameRecord } from "./metrics/outcome";
 import type { ProviderKeys } from "./providers";
 import { makeProvider } from "./providers";
 
@@ -18,13 +20,32 @@ const observerSchema = z.strictObject({
   instruction: z.string(),
   model: z.string().min(1),
   provider: z
-    .enum(["anthropic", "claude_code", "openai", "mock"])
+    .enum(["anthropic", "claude_code", "codex", "openai", "mock"])
     .default("claude_code"),
   temperature: z.number().min(0).max(2).default(0),
   max_tokens: z.number().int().positive().default(2000),
   // rough input budget; transcripts are excerpted once it is exceeded
   context_budget_tokens: z.number().int().positive().default(150_000),
   excerpt_posts: z.number().int().positive().default(10),
+  // show each post's private reasoning (the raw reply before the
+  // output.delimiter marker) under the post
+  include_private: z.boolean().default(false),
+  // Two-stage reading for large corpora: one note per game from the full
+  // record (cached in the run dir, so an interrupted pass resumes), then the
+  // corpus call reads the notes plus the batch's stats table instead of
+  // every transcript.
+  per_run: z
+    .strictObject({
+      model: z.string().min(1),
+      provider: z
+        .enum(["anthropic", "claude_code", "codex", "openai", "mock"])
+        .default("claude_code"),
+      prompt: z.string(),
+      instruction: z.string(),
+      max_tokens: z.number().int().positive().default(700),
+      gap_seconds: z.number().nonnegative().default(0),
+    })
+    .optional(),
   render: z.strictObject({
     run_header: z.string(),
     room_header: z.string(),
@@ -32,6 +53,14 @@ const observerSchema = z.strictObject({
     events_header: z.string(),
     event_line: z.string(),
     excerpt_gap: z.string(),
+    roster_header: z.string().optional(),
+    roster_line: z.string().optional(),
+    outcome_line: z.string().optional(),
+    private_line: z.string().optional(),
+    note_header: z.string().optional(),
+    stats_header: z.string().optional(),
+    stats_outcome_line: z.string().optional(),
+    stats_cell_line: z.string().optional(),
   }),
 });
 
@@ -82,6 +111,8 @@ const OBSERVER_EVENT_KINDS = new Set([
   "operator_unmute",
   "room_join",
   "room_leave",
+  "room_open",
+  "room_close",
   "moderator_note",
   "moderator_unparsed",
   "provider_error",
@@ -118,10 +149,25 @@ export function renderRunDigest(
     seq: number;
     room: string;
     t_land: number;
+    t_wake: number;
     agent: string;
     message: string;
+    raw?: string;
   }[];
   const events = readJsonl(join(runDir, "events.jsonl"));
+  const game = readGameRecord(runDir);
+  const delimiter = (
+    resolved as { output?: { delimiter?: string } }
+  ).output?.delimiter?.toLowerCase();
+  // what the player wrote before the marker, never shown to the room
+  const privateOf = (raw: string | undefined): string => {
+    if (raw === undefined || delimiter === undefined) return "";
+    const lines = raw.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--)
+      if ((lines[i] ?? "").trim().toLowerCase().startsWith(delimiter))
+        return lines.slice(0, i).join("\n").trim();
+    return "";
+  };
 
   const lines: string[] = [
     fill(observer.render.run_header, {
@@ -132,6 +178,30 @@ export function renderRunDigest(
       posts: posts.length,
     }),
   ];
+  if (
+    observer.render.roster_header !== undefined &&
+    observer.render.roster_line !== undefined
+  ) {
+    lines.push(observer.render.roster_header);
+    for (const seat of game.seats)
+      lines.push(
+        fill(observer.render.roster_line, {
+          name: seat.agent,
+          role: seat.role || "-",
+          model: seat.model,
+          provider: seat.provider,
+        }),
+      );
+  }
+  if (observer.render.outcome_line !== undefined)
+    lines.push(
+      fill(observer.render.outcome_line, {
+        outcome: game.outcome,
+        clock: renderClock(game.outcome_t ?? game.end_t ?? 0),
+        eliminated:
+          game.eliminations.map((e) => e.agent).join(", ") || "nobody",
+      }),
+    );
   const roomNames = Object.keys(resolved.rooms ?? { main: {} });
   for (const room of roomNames) {
     const roomPosts = posts.filter((p) => p.room === room);
@@ -153,6 +223,15 @@ export function renderRunDigest(
         );
         continue;
       }
+      const hidden = observer.include_private ? privateOf(post.raw) : "";
+      if (hidden !== "" && observer.render.private_line !== undefined)
+        lines.push(
+          fill(observer.render.private_line, {
+            name: post.agent,
+            clock: renderClock(post.t_wake),
+            text: hidden,
+          }),
+        );
       lines.push(
         fill(observer.render.line, {
           id: post.seq,
@@ -163,9 +242,25 @@ export function renderRunDigest(
       );
     }
   }
-  const shownEvents = events.filter((e) =>
-    OBSERVER_EVENT_KINDS.has(e.kind as string),
-  );
+  // a broadcast is one event per recipient in the log; the observer reads it
+  // once, addressed to "all"
+  const seenBroadcast = new Map<string, number>();
+  for (const event of events)
+    if (event.kind === "inject") {
+      const key = `${String(event.t)}|${String(event.text)}`;
+      seenBroadcast.set(key, (seenBroadcast.get(key) ?? 0) + 1);
+    }
+  const emitted = new Set<string>();
+  const shownEvents = events
+    .filter((e) => OBSERVER_EVENT_KINDS.has(e.kind as string))
+    .flatMap((event) => {
+      if (event.kind !== "inject") return [event];
+      const key = `${String(event.t)}|${String(event.text)}`;
+      if ((seenBroadcast.get(key) ?? 0) < 2) return [event];
+      if (emitted.has(key)) return [];
+      emitted.add(key);
+      return [{ ...event, agent: "all" }];
+    });
   if (shownEvents.length > 0) {
     lines.push(observer.render.events_header);
     for (const event of shownEvents)
@@ -215,6 +310,8 @@ export type ObserverResult = {
   observer: { name: string; model: string; provider: string; prompt: string };
   runs: string[];
   excerpted_runs: number;
+  // two-stage reads: how many per-game notes fed the corpus call
+  notes?: { written: number; reused: number; failed: number; model: string };
   wall: string;
   usage: unknown;
   raw: string;
@@ -222,15 +319,162 @@ export type ObserverResult = {
   parse_error?: string;
 };
 
-// one call over the whole corpus; the result (parsed or not) is written to
-// <outDir>/observer.json and returned
+type RunNote = { run: string; raw: string; usage: unknown; wall: string };
+
+function notePath(runDir: string, observer: ObserverConfig): string {
+  return join(runDir, `observer-note.${observer.name}.json`);
+}
+
+// the batch's own numbers, rendered through the rubric's templates
+export function renderStats(
+  summary: BatchSummary,
+  observer: ObserverConfig,
+): string | null {
+  const { stats_header, stats_outcome_line, stats_cell_line } = observer.render;
+  if (
+    stats_header === undefined ||
+    stats_outcome_line === undefined ||
+    stats_cell_line === undefined
+  )
+    return null;
+  return [
+    fill(stats_header, { games: summary.games }),
+    ...Object.entries(summary.outcomes).map(([outcome, games]) =>
+      fill(stats_outcome_line, {
+        outcome,
+        games,
+        percent: Math.round((100 * games) / Math.max(1, summary.games)),
+      }),
+    ),
+    ...summary.by_model_role.map((cell) =>
+      fill(stats_cell_line, {
+        role: cell.role,
+        model: cell.model,
+        seats: cell.seats,
+        wins: cell.wins,
+        win_percent: Math.round(100 * cell.win_rate),
+        survival_percent: Math.round(100 * cell.survival_rate),
+      }),
+    ),
+  ].join("\n");
+}
+
+const realSleep = (seconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+
+// Stage one of a two-stage read: one note per game from its full record.
+// Notes are cached in the run dir, so a pass interrupted by a usage limit
+// picks up where it stopped; a failed note is reported and skipped.
+export async function writeRunNotes(
+  runDirs: string[],
+  observer: ObserverConfig,
+  keys: ProviderKeys,
+  options: {
+    sleep?: (seconds: number) => Promise<void>;
+    onLog?: (line: string) => void;
+  } = {},
+): Promise<{ written: number; reused: number; failed: number }> {
+  const stage = observer.per_run;
+  if (stage === undefined) return { written: 0, reused: 0, failed: 0 };
+  const sleep = options.sleep ?? realSleep;
+  const provider = makeProvider(
+    { provider: stage.provider, model: stage.model, seed: 1 },
+    keys,
+  );
+  let written = 0;
+  let reused = 0;
+  let failed = 0;
+  for (const runDir of runDirs) {
+    if (existsSync(notePath(runDir, observer))) {
+      reused += 1;
+      continue;
+    }
+    try {
+      const response = await provider.complete({
+        system: stage.prompt,
+        blocks: [renderRunDigest(runDir, observer, false), stage.instruction],
+        cacheableBlocks: 0,
+        maxTokens: stage.max_tokens,
+        temperature: observer.temperature,
+      });
+      const note: RunNote = {
+        run: basename(runDir),
+        raw: response.text,
+        usage: response.usage,
+        wall: new Date().toISOString(),
+      };
+      writeFileSync(notePath(runDir, observer), JSON.stringify(note, null, 2));
+      written += 1;
+      options.onLog?.(
+        `note ${written + reused}/${runDirs.length}: ${note.run}`,
+      );
+    } catch (error) {
+      failed += 1;
+      options.onLog?.(
+        `note failed for ${basename(runDir)}: ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`,
+      );
+    }
+    if (stage.gap_seconds > 0) await sleep(stage.gap_seconds);
+  }
+  return { written, reused, failed };
+}
+
+// the corpus as notes: the stats table, then each game's note under its
+// header, then the instruction
+export function buildNoteBlocks(
+  runDirs: string[],
+  observer: ObserverConfig,
+  summary: BatchSummary | null,
+): string[] {
+  const blocks: string[] = [];
+  const stats = summary === null ? null : renderStats(summary, observer);
+  if (stats !== null) blocks.push(stats);
+  for (const runDir of runDirs) {
+    const path = notePath(runDir, observer);
+    if (!existsSync(path)) continue;
+    const note = JSON.parse(readFileSync(path, "utf8")) as RunNote;
+    const game = readGameRecord(runDir);
+    blocks.push(
+      `${fill(observer.render.note_header ?? observer.render.run_header, {
+        run: note.run,
+        name: note.run,
+        seed: "",
+        duration: "",
+        posts: "",
+        outcome: game.outcome,
+      })}\n${note.raw}`,
+    );
+  }
+  blocks.push(observer.instruction);
+  return blocks;
+}
+
+// one call over the whole corpus — transcripts directly, or per-game notes
+// when the rubric has a per_run stage; the result (parsed or not) is written
+// to <outDir>/observer.json and returned
 export async function runObserver(
   runDirs: string[],
   outDir: string,
   observer: ObserverConfig,
   keys: ProviderKeys,
+  options: {
+    summary?: BatchSummary;
+    sleep?: (seconds: number) => Promise<void>;
+    onLog?: (line: string) => void;
+  } = {},
 ): Promise<ObserverResult> {
-  const { blocks, excerpted } = buildCorpusBlocks(runDirs, observer);
+  let blocks: string[];
+  let excerpted = 0;
+  let notes: ObserverResult["notes"];
+  if (observer.per_run !== undefined) {
+    const counts = await writeRunNotes(runDirs, observer, keys, options);
+    notes = { ...counts, model: observer.per_run.model };
+    blocks = buildNoteBlocks(runDirs, observer, options.summary ?? null);
+  } else {
+    const corpus = buildCorpusBlocks(runDirs, observer);
+    blocks = corpus.blocks;
+    excerpted = corpus.excerpted;
+  }
   const provider = makeProvider(
     { provider: observer.provider, model: observer.model, seed: 1 },
     keys,
@@ -251,6 +495,7 @@ export async function runObserver(
     },
     runs: runDirs.map((dir) => basename(dir)),
     excerpted_runs: excerpted,
+    ...(notes !== undefined ? { notes } : {}),
     wall: new Date().toISOString(),
     usage: response.usage,
     raw: response.text,

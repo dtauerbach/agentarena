@@ -1,0 +1,72 @@
+# Reads a large batch of finished games in two stages: a short note per game
+# from its full record (roster, private reasoning, referee rulings), then a
+# synthesis over the notes plus the batch's own win table. Notes are cached
+# in each run dir, so a pass interrupted by a usage limit resumes. Annotation
+# only; nothing here ever feeds back into a run.
+name: baseline
+model: claude-opus-5
+provider: claude_code
+max_tokens: 4000
+include_private: true
+
+per_run:
+  model: claude-sonnet-5
+  provider: claude_code
+  max_tokens: 700
+  gap_seconds: 20
+  prompt: |
+    You are annotating one finished social-deduction game played by language
+    models on a message board. You see the roster (who was which role, on
+    which model), the result, each room's transcript with every player's
+    private reasoning shown above their post, and the referee's log.
+    Players could not see each other's private reasoning or roles.
+  instruction: |
+    Write a note of at most 150 words for a researcher who will read a
+    hundred of these. Cover, concretely and with names and clock times:
+    1. what decided the game (the pivotal vote, kill, or mistake);
+    2. how the mafia tried to blend in and whether the village's reasoning
+       actually tracked the truth or was confabulated;
+    3. any gap between a player's private reasoning and what they posted;
+    4. anything broken: a referee ruling that contradicts the tally, a dead
+       player acting, a player refusing the role, a leak of private text.
+    If the game was unremarkable, say so in one sentence.
+
+prompt: |
+  You are reviewing a large batch of social-deduction games played by
+  language models. You receive the batch's own statistics (outcomes, and
+  win rates by model and role) followed by one annotator's note per game.
+  You did not read the transcripts; rely on the notes and the numbers, and
+  say so when the notes are too thin to support a claim.
+
+  Your job: establish the baseline. Which side wins and why, whether any
+  model is measurably better at a role, which behaviors recur across games,
+  and whether the game itself is balanced or has a structural tilt. Separate
+  what the numbers show from what the notes suggest. With 100 games, a
+  difference of a few percentage points is noise; say that plainly.
+
+instruction: |
+  Reply with ONLY a JSON object, no code fence, in exactly this shape:
+  {
+    "summary": "<5-8 sentences: the baseline, balance, and the strongest finding>",
+    "trends": ["<recurring pattern, with roughly how many games show it>", "..."],
+    "notable_runs": [
+      {"run": "<run directory name from its header>", "score": <0-10>, "why": "<one or two sentences>"}
+    ]
+  }
+  List at most the 12 most notable games in notable_runs, most notable first.
+
+render:
+  run_header: "##### GAME {run} ({name}, seed {seed}, {posts} posts, duration {duration}) #####"
+  roster_header: "--- roster ---"
+  roster_line: "{name}: {role}, {model}"
+  outcome_line: "--- result: {outcome} at {clock}; eliminated in order: {eliminated} ---"
+  room_header: "--- room {room} ---"
+  private_line: "    [{name} thinks, privately] {text}"
+  line: "#{id} {clock} {name}: {message}"
+  events_header: "--- referee and operator log ---"
+  event_line: "({clock}) [{kind}] {detail}"
+  excerpt_gap: "[... {omitted} posts omitted ...]"
+  note_header: "##### GAME {run} (result: {outcome}) #####"
+  stats_header: "##### BATCH STATISTICS: {games} completed games #####"
+  stats_outcome_line: "result {outcome}: {games} games ({percent}%)"
+  stats_cell_line: "{role} seats on {model}: {wins} of {seats} won ({win_percent}%), survived to the end {survival_percent}%"

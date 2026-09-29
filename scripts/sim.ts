@@ -352,12 +352,23 @@ async function commandObserve(
     : [target];
   if (observer.provider !== "mock" && !yes) {
     console.log(
-      `observer "${observer.name}" will read ${runDirs.length} run(s) on ${observer.model} ` +
-        `(~${observer.context_budget_tokens.toLocaleString()} input tokens max); rerun with --yes to spend it`,
+      `observer "${observer.name}" will read ${runDirs.length} run(s) on ${observer.model}` +
+        (observer.per_run
+          ? ` via one note per game on ${observer.per_run.model}`
+          : ` (~${observer.context_budget_tokens.toLocaleString()} input tokens max)`) +
+        "; rerun with --yes to spend it",
     );
     process.exit(1);
   }
-  const result = await runObserver(runDirs, target, observer, providerKeys());
+  const result = await runObserver(runDirs, target, observer, providerKeys(), {
+    ...(isBatch ? { summary: analyzeBatch(target).summary } : {}),
+    onLog: (line) => console.log(line),
+  });
+  if (result.notes)
+    console.log(
+      `per-game notes on ${result.notes.model}: ${result.notes.written} written, ` +
+        `${result.notes.reused} reused, ${result.notes.failed} failed`,
+    );
   console.log(`wrote ${join(target, "observer.json")}`);
   if (result.report) {
     console.log(`summary: ${result.report.summary}`);
