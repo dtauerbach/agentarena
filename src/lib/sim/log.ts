@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import {
   createWriteStream,
+  existsSync,
   mkdirSync,
   readFileSync,
   writeFileSync,
@@ -32,7 +33,14 @@ export function makeRunDir(
 ): string {
   const slug =
     label !== undefined && slugify(label) !== "" ? slugify(label) : config.name;
-  const dir = join(baseDir, `${timestamp(new Date())}-${slug}-s${config.seed}`);
+  const base = join(
+    baseDir,
+    `${timestamp(new Date())}-${slug}-s${config.seed}`,
+  );
+  // a replay of the same seed within the same second must not share the
+  // aborted attempt's directory
+  let dir = base;
+  for (let n = 2; existsSync(dir); n++) dir = `${base}-r${n}`;
   mkdirSync(dir, { recursive: true });
   return dir;
 }

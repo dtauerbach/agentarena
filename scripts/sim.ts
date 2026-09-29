@@ -8,22 +8,26 @@ import {
   readApiKey,
   readOpenAIKey,
 } from "../src/lib/env";
-import { runBatch } from "../src/lib/sim/batch";
+import { readManifest, runBatch } from "../src/lib/sim/batch";
 import type { ConfigOverrides } from "../src/lib/sim/config";
 import { loadConfig } from "../src/lib/sim/config";
 import { runEngine } from "../src/lib/sim/engine";
 import { estimateCost } from "../src/lib/sim/estimate";
 import { createRunLogger, makeRunDir } from "../src/lib/sim/log";
 import { analyzeRun } from "../src/lib/sim/metrics/analyze";
+import type { BatchSummary } from "../src/lib/sim/metrics/batch";
 import { analyzeBatch, listBatchRunDirs } from "../src/lib/sim/metrics/batch";
 import { loadObserver, runObserver } from "../src/lib/sim/observe";
 import { loadPricing, usd } from "../src/lib/sim/pricing";
 import {
+  firstClaudeCodeModel,
+  firstCodexModel,
   makeProvider,
   makeProviders,
   requiredProviders,
 } from "../src/lib/sim/providers";
 import { probeClaudeCode } from "../src/lib/sim/providers/claude-code";
+import { probeCodex } from "../src/lib/sim/providers/codex";
 import { makeMockProvider } from "../src/lib/sim/providers/mock";
 import { verifyRun } from "../src/lib/sim/verify";
 
@@ -31,8 +35,9 @@ function usage(): never {
   console.error(
     [
       "usage:",
-      "  npm run sim -- run <config.yaml> [--provider mock|anthropic] [--duration SEC] [--seed N] [--model ID] [--yes]",
-      "  npm run sim -- batch <config.yaml> --n N [--concurrency C] [--seed-start S] [--provider mock|anthropic] [--yes]",
+      "  npm run sim -- run <config.yaml> [--provider mock|claude_code|codex|anthropic] [--duration SEC] [--seed N] [--model ID] [--yes]",
+      "  npm run sim -- batch <config.yaml> --n N [--gap SEC] [--abort-after K] [--label NAME] [--concurrency C] [--seed-start S] [--provider ...] [--yes]",
+      "  npm run sim -- resume <batch dir> [--gap SEC]",
       "  npm run sim -- analyze <run dir | batch dir> [--observe observers/<name>.yaml] [--yes]",
       "  npm run sim -- verify <run dir> [--respot N]",
     ].join("\n"),
@@ -44,7 +49,10 @@ type Flags = ConfigOverrides & {
   yes: boolean;
   n: number;
   concurrency: number;
+  concurrencySet: boolean;
   seedStart: number;
+  gap?: number;
+  abortAfter?: number;
   label?: string;
   observe?: string;
   respot: number;
@@ -55,6 +63,7 @@ function parseFlags(rest: string[]): Flags {
     yes: false,
     n: 1,
     concurrency: 5,
+    concurrencySet: false,
     seedStart: 1,
     respot: 0,
   };
@@ -69,7 +78,13 @@ function parseFlags(rest: string[]): Flags {
     i++;
     switch (flag) {
       case "--provider":
-        if (value !== "mock" && value !== "anthropic") usage();
+        if (
+          value !== "mock" &&
+          value !== "anthropic" &&
+          value !== "claude_code" &&
+          value !== "codex"
+        )
+          usage();
         flags.provider = value;
         break;
       case "--duration":
@@ -95,6 +110,13 @@ function parseFlags(rest: string[]): Flags {
         break;
       case "--concurrency":
         flags.concurrency = Number(value);
+        flags.concurrencySet = true;
+        break;
+      case "--gap":
+        flags.gap = Number(value);
+        break;
+      case "--abort-after":
+        flags.abortAfter = Number(value);
         break;
       case "--seed-start":
         flags.seedStart = Number(value);
@@ -109,6 +131,7 @@ function parseFlags(rest: string[]): Flags {
 async function guardCredentials(
   providers: string[],
   probeModel: string,
+  codexModel?: string,
 ): Promise<void> {
   for (const provider of providers)
     if (!hasCredentialsFor(provider)) {
@@ -122,6 +145,22 @@ async function guardCredentials(
       process.exit(1);
     }
   }
+  if (providers.includes("codex") && codexModel !== undefined) {
+    const probeError = await probeCodex(codexModel);
+    if (probeError !== null) {
+      console.error(probeError);
+      process.exit(1);
+    }
+  }
+}
+
+// only what changes the config; the rest of the flags drive the script
+function overridesOf(flags: Flags): ConfigOverrides {
+  return {
+    ...(flags.provider !== undefined ? { provider: flags.provider } : {}),
+    ...(flags.model !== undefined ? { model: flags.model } : {}),
+    ...(flags.duration !== undefined ? { duration: flags.duration } : {}),
+  };
 }
 
 function providerKeys() {
@@ -142,7 +181,9 @@ function guardBudget(
   if (config.model.provider === "mock") return;
   const single = estimateCost(config, loadPricing(), env.ARENA_BUDGET_USD);
   const total = single.usd === null ? null : single.usd * runs;
-  const subscription = config.model.provider === "claude_code";
+  const subscription = !requiredProviders(config).some(
+    (name) => name === "anthropic" || name === "openai",
+  );
   console.log(
     `estimate: ~${single.calls * runs} calls across ${runs} run(s)` +
       (total === null
@@ -161,7 +202,11 @@ function guardBudget(
 
 async function commandRun(configPath: string, flags: Flags): Promise<void> {
   const config = loadConfig(configPath, flags);
-  await guardCredentials(requiredProviders(config), config.model.name);
+  await guardCredentials(
+    requiredProviders(config),
+    firstClaudeCodeModel(config) ?? config.model.name,
+    firstCodexModel(config),
+  );
   guardBudget(configPath, flags, 1, flags.yes);
   const provider = makeProviders(config, providerKeys());
   const dir = makeRunDir(config, "runs", flags.label);
@@ -196,28 +241,102 @@ async function commandRun(configPath: string, flags: Flags): Promise<void> {
   );
 }
 
-async function commandBatch(configPath: string, flags: Flags): Promise<void> {
-  if (!Number.isInteger(flags.n) || flags.n < 1) usage();
-  const probe = loadConfig(configPath, flags);
-  await guardCredentials(requiredProviders(probe), probe.model.name);
-  guardBudget(configPath, flags, flags.n, flags.yes);
+async function playBatch(
+  configPath: string,
+  overrides: ConfigOverrides,
+  options: {
+    n: number;
+    seedStart: number;
+    concurrency: number;
+    gap?: number;
+    abortAfter?: number;
+    label?: string;
+    resumeDir?: string;
+  },
+): Promise<void> {
+  const probe = loadConfig(configPath, overrides);
+  const live = probe.model.provider !== "mock";
+  await guardCredentials(
+    requiredProviders(probe),
+    firstClaudeCodeModel(probe) ?? probe.model.name,
+    firstCodexModel(probe),
+  );
   const batchDir = await runBatch({
     configPath,
-    overrides: flags,
+    overrides,
+    n: options.n,
+    seedStart: options.seedStart,
+    concurrency: options.concurrency,
+    ...(options.label !== undefined ? { label: options.label } : {}),
+    ...(options.resumeDir !== undefined
+      ? { resumeDir: options.resumeDir }
+      : {}),
+    ...(options.gap !== undefined ? { gapSeconds: options.gap } : {}),
+    // live games abort on a dead provider by default; mock never fails
+    ...(options.abortAfter !== undefined
+      ? { abortAfterErrors: options.abortAfter }
+      : live
+        ? { abortAfterErrors: 5 }
+        : {}),
+    makeProvider: (seed) =>
+      live
+        ? makeProviders(
+            loadConfig(configPath, { ...overrides, seed }),
+            providerKeys(),
+          )
+        : makeMockProvider(seed),
+    onStart: (dir) => console.log(`batch dir: ${dir}`),
+    onLog: (line) => console.log(line),
+  });
+  const { summary } = analyzeBatch(batchDir);
+  console.log(`analyzed ${summary.games} completed game(s) in ${batchDir}`);
+  printSummary(summary);
+}
+
+function printSummary(summary: BatchSummary): void {
+  console.log(
+    `outcomes: ${
+      Object.entries(summary.outcomes)
+        .map(([name, n]) => `${name} ${n}`)
+        .join(", ") || "none"
+    }`,
+  );
+  for (const cell of summary.by_model_role)
+    console.log(
+      `  ${cell.role.padEnd(10)} ${cell.model.padEnd(22)} ` +
+        `${cell.wins}/${cell.seats} seats won (${(cell.win_rate * 100).toFixed(0)}%), ` +
+        `survived ${(cell.survival_rate * 100).toFixed(0)}%`,
+    );
+}
+
+async function commandBatch(configPath: string, flags: Flags): Promise<void> {
+  if (!Number.isInteger(flags.n) || flags.n < 1) usage();
+  const overrides = overridesOf(flags);
+  guardBudget(configPath, overrides, flags.n, flags.yes);
+  const live = loadConfig(configPath, overrides).model.provider !== "mock";
+  await playBatch(configPath, overrides, {
     n: flags.n,
     seedStart: flags.seedStart,
-    concurrency: flags.concurrency,
-    makeProvider: (seed) =>
-      probe.model.provider === "mock"
-        ? makeMockProvider(seed)
-        : makeProviders(
-            loadConfig(configPath, { ...flags, seed }),
-            providerKeys(),
-          ),
-    onRunDone: (seed, finished, total) =>
-      console.log(`run s${seed} done (${finished}/${total})`),
+    // live games run one at a time unless told otherwise
+    concurrency: live && !flags.concurrencySet ? 1 : flags.concurrency,
+    ...(flags.gap !== undefined ? { gap: flags.gap } : {}),
+    ...(flags.abortAfter !== undefined ? { abortAfter: flags.abortAfter } : {}),
+    ...(flags.label !== undefined ? { label: flags.label } : {}),
   });
-  console.log(`batch dir: ${batchDir}`);
+}
+
+async function commandResume(batchDir: string, flags: Flags): Promise<void> {
+  const manifest = readManifest(batchDir);
+  await playBatch(manifest.config, manifest.overrides ?? {}, {
+    n: manifest.n,
+    seedStart: manifest.seed_start,
+    concurrency: manifest.concurrency ?? 1,
+    resumeDir: batchDir,
+    ...(flags.gap !== undefined ? { gap: flags.gap } : {}),
+    ...(manifest.abort_after_errors !== undefined
+      ? { abortAfter: manifest.abort_after_errors }
+      : {}),
+  });
 }
 
 async function commandObserve(
@@ -226,7 +345,7 @@ async function commandObserve(
   yes: boolean,
 ): Promise<void> {
   const observer = loadObserver(observerPath);
-  await guardCredentials([observer.provider], observer.model);
+  await guardCredentials([observer.provider], observer.model, observer.model);
   const isBatch = existsSync(join(target, "batch.json"));
   const runDirs = isBatch
     ? listBatchRunDirs(target).map((entry) => join(target, entry))
@@ -253,10 +372,11 @@ async function commandObserve(
 
 async function commandAnalyze(target: string, flags: Flags): Promise<void> {
   if (existsSync(join(target, "batch.json"))) {
-    const { runs, agents } = analyzeBatch(target);
+    const { runs, agents, summary } = analyzeBatch(target);
     console.log(
-      `wrote ${join(target, "batch.csv")} (${runs} rows) and batch_agents.csv (${agents} rows)`,
+      `wrote ${join(target, "batch.csv")} (${runs} rows), batch_agents.csv (${agents} rows), batch_summary.json`,
     );
+    printSummary(summary);
     if (flags.observe !== undefined)
       await commandObserve(target, flags.observe, flags.yes);
     return;
@@ -336,7 +456,7 @@ async function commandVerify(target: string, flags: Flags): Promise<void> {
                 | "openai",
               model: override?.name ?? resolved.model.name,
             };
-      await guardCredentials([spec.provider], spec.model);
+      await guardCredentials([spec.provider], spec.model, spec.model);
       const provider = makeProvider({ ...spec, seed: 1 }, providerKeys());
       console.log(
         `\nrespot ${agent} @ t=${call.t} (${spec.provider}/${spec.model})`,
@@ -371,6 +491,7 @@ async function main(): Promise<void> {
   const flags = parseFlags(rest);
   if (command === "run") await commandRun(target, flags);
   else if (command === "batch") await commandBatch(target, flags);
+  else if (command === "resume") await commandResume(target, flags);
   else if (command === "analyze") await commandAnalyze(target, flags);
   else if (command === "verify") await commandVerify(target, flags);
   else usage();

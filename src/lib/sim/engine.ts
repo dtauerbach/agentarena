@@ -154,6 +154,8 @@ export type RunSummary = {
   silences: number;
   calls: number;
   stopped: boolean;
+  // set when the run was cut short by consecutive provider failures
+  aborted?: string;
   usage: Usage;
 };
 
@@ -184,7 +186,14 @@ export async function runEngine(
   config: Config,
   provider: Provider | ((agent: string) => Provider),
   hooks: EngineHooks,
-  opts: { pacer?: Pacer; operator?: OperatorPort } = {},
+  opts: {
+    pacer?: Pacer;
+    operator?: OperatorPort;
+    // stop the run once this many model calls in a row have failed: a game
+    // whose players cannot speak (usage limit, logged-out CLI) is not a
+    // game, and a batch runner wants to wait and replay the seed instead
+    abortAfterErrors?: number;
+  } = {},
 ): Promise<RunSummary> {
   const providerFor =
     typeof provider === "function" ? provider : () => provider;
@@ -212,6 +221,8 @@ export async function runEngine(
   let postId = 0;
   let simNow = 0;
   let stopped = false;
+  let consecutiveErrors = 0;
+  let abortReason: string | undefined;
   const totals: Usage = {
     inputTokens: 0,
     outputTokens: 0,
@@ -481,6 +492,7 @@ export async function runEngine(
         temperature: overrides?.temperature ?? config.model.temperature,
       });
       const latency = Date.now() - started;
+      consecutiveErrors = 0;
       totals.inputTokens += result.usage.inputTokens;
       totals.outputTokens += result.usage.outputTokens;
       totals.cacheReadTokens += result.usage.cacheReadTokens;
@@ -512,6 +524,15 @@ export async function runEngine(
         response: { error: message },
         latency_ms: latency,
       });
+      consecutiveErrors += 1;
+      if (
+        opts.abortAfterErrors !== undefined &&
+        consecutiveErrors >= opts.abortAfterErrors &&
+        abortReason === undefined
+      ) {
+        abortReason = message.slice(0, 300);
+        stopped = true;
+      }
       return { ok: false, error: message, latency_ms: latency };
     }
   };
@@ -1211,6 +1232,10 @@ export async function runEngine(
     posts: summary.posts,
     wakes: summary.wakes,
     ...(stopped ? { stopped: true } : {}),
+    ...(abortReason !== undefined
+      ? { aborted: true, reason: abortReason }
+      : {}),
   });
+  if (abortReason !== undefined) summary.aborted = abortReason;
   return summary;
 }

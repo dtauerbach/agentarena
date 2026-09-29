@@ -1,4 +1,12 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { ConfigOverrides } from "./config";
 import { loadConfig } from "./config";
@@ -14,6 +22,21 @@ function timestamp(date: Date): string {
   );
 }
 
+export type BatchManifest = {
+  name: string;
+  label?: string;
+  n: number;
+  seed_start: number;
+  provider: string;
+  model: string;
+  config: string;
+  overrides: ConfigOverrides;
+  concurrency: number;
+  gap_seconds: number;
+  abort_after_errors?: number;
+  started_at: string;
+};
+
 export type BatchOptions = {
   configPath: string;
   overrides: ConfigOverrides;
@@ -22,63 +45,172 @@ export type BatchOptions = {
   concurrency: number;
   baseDir?: string;
   label?: string;
+  // continue an existing batch directory: seeds that already have a
+  // completed game are skipped; everything else comes from its manifest
+  resumeDir?: string;
+  // "low and slow": wall-clock pause after each game
+  gapSeconds?: number;
+  // cut a game short after this many failed calls in a row (usage limit,
+  // logged-out CLI), wait, and replay the seed
+  abortAfterErrors?: number;
+  backoffSeconds?: { initial: number; max: number };
+  maxAttempts?: number;
+  sleep?: (seconds: number) => Promise<void>;
   makeProvider: (seed: number) => Provider | ((agent: string) => Provider);
   onStart?: (batchDir: string) => void;
   onRunDone?: (seed: number, finished: number, total: number) => void;
+  onLog?: (line: string) => void;
 };
+
+export function readManifest(batchDir: string): BatchManifest {
+  return JSON.parse(
+    readFileSync(join(batchDir, "batch.json"), "utf8"),
+  ) as BatchManifest;
+}
+
+// The directory is the state: a seed is done when one of its run dirs holds
+// a run_end that is not an abort. Crashed or aborted attempts stay on disk
+// as evidence and are simply not counted.
+export function completedSeeds(batchDir: string): Set<number> {
+  const done = new Set<number>();
+  for (const entry of readdirSync(batchDir)) {
+    const dir = join(batchDir, entry);
+    const configPath = join(dir, "config.resolved.json");
+    const eventsPath = join(dir, "events.jsonl");
+    if (!statSync(dir).isDirectory() || !existsSync(configPath)) continue;
+    if (!existsSync(eventsPath)) continue;
+    const events = readFileSync(eventsPath, "utf8");
+    const end = /"kind":"run_end"[^\n]*/.exec(events)?.[0];
+    if (end === undefined || end.includes('"aborted":true')) continue;
+    const { seed } = JSON.parse(readFileSync(configPath, "utf8")) as {
+      seed: number;
+    };
+    done.add(seed);
+  }
+  return done;
+}
+
+const realSleep = (seconds: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 
 // n runs of one config with seeds seedStart..seedStart+n-1, each a normal run
 // directory inside runs/batch-<timestamp>-<name>/
 export async function runBatch(options: BatchOptions): Promise<string> {
-  const { configPath, overrides, n, seedStart, concurrency } = options;
-  const probe = loadConfig(configPath, overrides);
-  const slug =
-    options.label !== undefined && options.label.trim() !== ""
-      ? options.label
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "")
-          .slice(0, 40) || probe.name
-      : probe.name;
-  const batchDir = join(
-    options.baseDir ?? "runs",
-    `batch-${timestamp(new Date())}-${slug}`,
-  );
-  mkdirSync(batchDir, { recursive: true });
-  writeFileSync(
-    join(batchDir, "batch.json"),
-    JSON.stringify(
-      {
-        name: probe.name,
-        ...(options.label !== undefined ? { label: options.label } : {}),
-        n,
-        seed_start: seedStart,
-        provider: probe.model.provider,
-        model: probe.model.name,
-        config: configPath,
-        started_at: new Date().toISOString(),
-      },
-      null,
-      2,
-    ),
-  );
+  const sleep = options.sleep ?? realSleep;
+  let batchDir: string;
+  let manifest: BatchManifest;
+  if (options.resumeDir !== undefined) {
+    batchDir = options.resumeDir;
+    manifest = readManifest(batchDir);
+  } else {
+    const probe = loadConfig(options.configPath, options.overrides);
+    const slug =
+      options.label !== undefined && options.label.trim() !== ""
+        ? options.label
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 40) || probe.name
+        : probe.name;
+    batchDir = join(
+      options.baseDir ?? "runs",
+      `batch-${timestamp(new Date())}-${slug}`,
+    );
+    mkdirSync(batchDir, { recursive: true });
+    manifest = {
+      name: probe.name,
+      ...(options.label !== undefined ? { label: options.label } : {}),
+      n: options.n,
+      seed_start: options.seedStart,
+      provider: probe.model.provider,
+      model: probe.model.name,
+      config: options.configPath,
+      overrides: options.overrides,
+      concurrency: options.concurrency,
+      gap_seconds: options.gapSeconds ?? 0,
+      ...(options.abortAfterErrors !== undefined
+        ? { abort_after_errors: options.abortAfterErrors }
+        : {}),
+      started_at: new Date().toISOString(),
+    };
+    writeFileSync(
+      join(batchDir, "batch.json"),
+      JSON.stringify(manifest, null, 2),
+    );
+  }
+  const log = (line: string): void => {
+    const stamped = `${new Date().toISOString()} ${line}`;
+    appendFileSync(join(batchDir, "batch.log"), `${stamped}\n`);
+    options.onLog?.(stamped);
+  };
   options.onStart?.(batchDir);
-  const seeds = Array.from({ length: n }, (_, i) => seedStart + i);
-  let finished = 0;
+
+  const gap = options.gapSeconds ?? manifest.gap_seconds ?? 0;
+  const abortAfter = options.abortAfterErrors ?? manifest.abort_after_errors;
+  const backoff = options.backoffSeconds ?? { initial: 900, max: 7200 };
+  const maxAttempts = options.maxAttempts ?? 8;
+  const already = completedSeeds(batchDir);
+  const seeds = Array.from(
+    { length: manifest.n },
+    (_, i) => manifest.seed_start + i,
+  ).filter((seed) => !already.has(seed));
+  let finished = already.size;
+  log(
+    `batch ${options.resumeDir !== undefined ? "resumed" : "started"}: ` +
+      `${seeds.length} game(s) to play, ${already.size} already complete, ` +
+      `gap ${gap}s, abort after ${abortAfter ?? "never"} failed calls in a row`,
+  );
+
   let index = 0;
-  const workers = Array.from({ length: Math.min(concurrency, n) }, async () => {
-    while (index < seeds.length) {
-      const seed = seeds[index++] as number;
-      const config = loadConfig(configPath, { ...overrides, seed });
-      const dir = makeRunDir(config, batchDir);
-      const logger = createRunLogger(dir);
-      logger.writeResolvedConfig(config);
-      await runEngine(config, options.makeProvider(seed), logger.hooks);
-      await logger.close();
-      finished += 1;
-      options.onRunDone?.(seed, finished, n);
-    }
-  });
+  let halted: string | undefined;
+  const workers = Array.from(
+    { length: Math.max(1, Math.min(manifest.concurrency, seeds.length)) },
+    async () => {
+      while (index < seeds.length && halted === undefined) {
+        const seed = seeds[index++] as number;
+        let wait = backoff.initial;
+        for (let attempt = 1; ; attempt++) {
+          const config = loadConfig(manifest.config, {
+            ...manifest.overrides,
+            seed,
+          });
+          const dir = makeRunDir(config, batchDir);
+          const logger = createRunLogger(dir);
+          logger.writeResolvedConfig(config);
+          const summary = await runEngine(
+            config,
+            options.makeProvider(seed),
+            logger.hooks,
+            abortAfter !== undefined ? { abortAfterErrors: abortAfter } : {},
+          );
+          await logger.close();
+          if (summary.aborted === undefined) {
+            finished += 1;
+            log(
+              `seed ${seed} done (${finished}/${manifest.n}): ${summary.posts} posts, ` +
+                `${summary.calls} calls, ${summary.usage.inputTokens + summary.usage.cacheReadTokens} in / ${summary.usage.outputTokens} out tokens`,
+            );
+            options.onRunDone?.(seed, finished, manifest.n);
+            break;
+          }
+          if (attempt >= maxAttempts) {
+            halted = `seed ${seed} aborted ${attempt} times; last error: ${summary.aborted}`;
+            log(`batch halted: ${halted}`);
+            break;
+          }
+          log(
+            `seed ${seed} aborted (attempt ${attempt}): ${summary.aborted.slice(0, 160)} — ` +
+              `waiting ${Math.round(wait / 60)} min before replaying it`,
+          );
+          await sleep(wait);
+          wait = Math.min(backoff.max, wait * 2);
+        }
+        if (gap > 0 && index < seeds.length && halted === undefined)
+          await sleep(gap);
+      }
+    },
+  );
   await Promise.all(workers);
+  if (halted === undefined) log(`batch complete: ${finished}/${manifest.n}`);
   return batchDir;
 }
