@@ -120,8 +120,16 @@
   `.sandbox/codex-home/` (gitignored, persistent). Input purity measured
   with `codex debug prompt-input`: system prompt + wake prompt only; Codex's
   base system prompt remains underneath (disclosed). Model list comes from
-  `codex debug models`. Setup guide: docs/CODEX.md. Pending the operator's
-  one-time device login before the first live call.
+  `codex debug models`. Setup guide: docs/CODEX.md. Operator logged in via
+  device code 2026-09-29. The experiment's prompt now REPLACES Codex's base
+  instructions (`model_instructions_file`; input 5,338 → 1,757 tokens for a
+  trivial prompt; session record provenance "custom"); ~1.75K tokens of
+  built-in tool definitions remain and no flag removes them. Validated live
+  (`runs/20260929-142412-gpt-village-vs-claude-mafia-s1`): 4 GPT villagers
+  (gpt-5.6-luna, gpt-6-luna, gpt-5.5, gpt-6-sol) + haiku vs sonnet/opus
+  mafia, opus referee. 43 codex calls, 0 errors, 0 tool calls attempted, 41
+  used the POST: marker (2 forgot it → silence, logged), avg latency 10.4 s.
+  Village won at 1:05:00 after a last-five-minutes vote flip onto Bob.
 
 ## Decisions
 
