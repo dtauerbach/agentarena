@@ -1,0 +1,14 @@
+# The baseline condition for large batches: every seat on a mid-tier model,
+# four Claude and three GPT, dealt onto the seats by a seeded shuffle each
+# game so model is not tied to a name or a role. The referee stays on the
+# strongest model: its job is bookkeeping, not play.
+#   npm run sim -- batch experiments/mafia/baseline_mid.yaml --n 100 --gap 300 --label baseline-mid-100
+extends: ./base.yaml
+name: baseline_mid
+description: >-
+  Baseline for batches: mid-tier players (Claude Sonnet 5 and GPT-6 Sol)
+  dealt at random onto the seats each game, Opus referee.
+model:
+  lineup:
+    - { provider: claude_code, name: claude-sonnet-5, count: 4 }
+    - { provider: codex, name: gpt-6-sol, count: 3 }

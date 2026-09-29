@@ -6,7 +6,12 @@ import { BatchRefresh } from "@/components/batch-refresh";
 import { ObserveButton } from "@/components/observe-button";
 import { Badge } from "@/components/ui/badge";
 import { batchDirFromId } from "@/lib/runs-fs";
-import { analyzeBatch, listBatchRunDirs } from "@/lib/sim/metrics/batch";
+import {
+  analyzeBatch,
+  countAborted,
+  listBatchRunDirs,
+  quickSummary,
+} from "@/lib/sim/metrics/batch";
 import type { ObserverResult } from "@/lib/sim/observe";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +59,12 @@ export default async function BatchPage({
         ),
       }
     : null;
+  const summary = runDirs.length > 0 ? quickSummary(dir) : null;
+  const aborted = countAborted(dir);
+  const logPath = join(dir, "batch.log");
+  const logTail = existsSync(logPath)
+    ? readFileSync(logPath, "utf8").trim().split("\n").slice(-6)
+    : [];
   const observerPath = join(dir, "observer.json");
   const observed: ObserverResult | null = existsSync(observerPath)
     ? (JSON.parse(readFileSync(observerPath, "utf8")) as ObserverResult)
@@ -77,6 +88,72 @@ export default async function BatchPage({
           {info.config}
         </p>
       </div>
+
+      {summary && (
+        <section className="space-y-3 rounded-lg border p-4">
+          <h2 className="text-sm font-semibold">
+            Results from {summary.games} completed game
+            {summary.games === 1 ? "" : "s"}
+          </h2>
+          <div className="flex flex-wrap gap-2 text-sm">
+            {Object.entries(summary.outcomes).map(([outcome, games]) => (
+              <span key={outcome} className="rounded-full border px-3 py-1">
+                <span className="font-medium">{outcome}</span> {games} (
+                {Math.round((100 * games) / summary.games)}%)
+              </span>
+            ))}
+          </div>
+          {summary.by_model_role.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr>
+                    <th className="py-1 pr-4">role</th>
+                    <th className="py-1 pr-4">model</th>
+                    <th className="py-1 pr-4">seats</th>
+                    <th className="py-1 pr-4">won</th>
+                    <th className="py-1 pr-4">win rate</th>
+                    <th className="py-1 pr-4">survived</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {summary.by_model_role.map((cell) => (
+                    <tr key={`${cell.role}-${cell.model}`} className="border-t">
+                      <td className="py-1 pr-4">{cell.role}</td>
+                      <td className="py-1 pr-4 font-mono">{cell.model}</td>
+                      <td className="py-1 pr-4 tabular-nums">{cell.seats}</td>
+                      <td className="py-1 pr-4 tabular-nums">{cell.wins}</td>
+                      <td className="py-1 pr-4 tabular-nums">
+                        {Math.round(100 * cell.win_rate)}%
+                      </td>
+                      <td className="py-1 pr-4 tabular-nums">
+                        {Math.round(100 * cell.survival_rate)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            {summary.calls.toLocaleString()} model calls ·{" "}
+            {summary.tokens_in.toLocaleString()} tokens read ·{" "}
+            {summary.tokens_out.toLocaleString()} written
+            {aborted > 0 &&
+              ` · ${aborted} attempt${aborted === 1 ? "" : "s"} aborted by a failing provider and replayed (not counted)`}
+          </p>
+        </section>
+      )}
+      {logTail.length > 0 && (
+        <details className="rounded-lg border p-3 text-xs" open={inProgress}>
+          <summary className="cursor-pointer select-none font-semibold">
+            Runner log
+          </summary>
+          <pre className="mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-muted-foreground">
+            {logTail.join("\n")}
+          </pre>
+        </details>
+      )}
 
       <section className="space-y-2">
         <div className="flex items-center gap-3">

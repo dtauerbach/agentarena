@@ -279,6 +279,7 @@ concurrency: 5                  # parallel model calls
 model:
   provider: anthropic           # anthropic | claude_code | codex | openai | mock
   per_agent: {}                 # e.g. { B: { name: claude-sonnet-4-6 }, C: { provider: openai, name: gpt-6 } }
+  lineup: []                    # [{provider?, name, count}] dealt onto seats by a seeded shuffle; exclusive with per_agent
   name: claude-haiku-4-5   # verify current ids in the docs
   temperature: 1.0
   max_tokens: 100               # hard cap on the API call; max_words is the soft cap
@@ -306,6 +307,7 @@ tools:
   web: false                    # read-only web search/fetch for every agent; breaks the closed world (see §10)
 common_prompt: ...              # inherited from base
 private_prompts: {}
+roles: {}                       # role -> [names]; for analysis and the viewer only
 injections: []                  # {at, agent: name | [names] | all, text}
 moderator:                      # optional config-driven referee (see §11a)
   prompt: ...                   # its system prompt; all its templates are YAML
@@ -329,6 +331,8 @@ metrics:
   bucket_seconds: 300
   concurrent_window: 10
   meta_talk_patterns: ["rules", "don't know", "unclear", "what game", "no game", "not sure what"]
+  outcomes: []                  # [{name, pattern, winners: [roles]}] — how analysis recognizes the
+                                # result in the referee's announcements (docs/BATCHES.md)
 viewer:
   port: 3000
   speed: 10                     # simulated seconds per real second; "max" = as fast as the API allows

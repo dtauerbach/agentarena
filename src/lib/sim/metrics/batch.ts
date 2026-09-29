@@ -141,13 +141,12 @@ export type BatchSummary = {
     win_rate: number;
     survival_rate: number;
   }[];
+  calls: number;
   tokens_in: number;
   tokens_out: number;
 };
 
-export function summarizeBatch(
-  games: { game: GameRecord; metrics: RunMetrics }[],
-): BatchSummary {
+export function summarizeBatch(games: { game: GameRecord }[]): BatchSummary {
   const outcomes: Record<string, number> = {};
   const cells = new Map<
     string,
@@ -199,9 +198,28 @@ export function summarizeBatch(
         (a, b) =>
           a.role.localeCompare(b.role) || a.model.localeCompare(b.model),
       ),
-    tokens_in: games.reduce((n, g) => n + g.metrics.tokens_in, 0),
-    tokens_out: games.reduce((n, g) => n + g.metrics.tokens_out, 0),
+    calls: games.reduce((n, g) => n + g.game.calls, 0),
+    tokens_in: games.reduce((n, g) => n + g.game.tokens_in, 0),
+    tokens_out: games.reduce((n, g) => n + g.game.tokens_out, 0),
   };
+}
+
+// the live view of a batch: results from the games completed so far, read
+// straight off their records without the full metrics pass
+export function quickSummary(batchDir: string): BatchSummary {
+  return summarizeBatch(
+    listBatchRunDirs(batchDir).map((entry) => ({
+      game: readGameRecord(join(batchDir, entry)),
+    })),
+  );
+}
+
+// attempts cut short by a dead provider, kept on disk but not counted
+export function countAborted(batchDir: string): number {
+  return readdirSync(batchDir).filter((entry) => {
+    const dir = join(batchDir, entry);
+    return statSync(dir).isDirectory() && isAborted(dir);
+  }).length;
 }
 
 // analyze every completed run in a batch dir and write batch.csv,

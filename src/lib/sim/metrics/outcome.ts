@@ -40,6 +40,9 @@ export type GameRecord = {
   eliminations: { agent: string; t: number; role: string }[];
   seats: SeatRecord[];
   moderator_model: string;
+  calls: number;
+  tokens_in: number;
+  tokens_out: number;
 };
 
 function readJsonl(path: string): Row[] {
@@ -104,6 +107,7 @@ export function readGameRecord(runDir: string): GameRecord {
     .sort((a, b) => a.t - b.t);
 
   const end = events.find((e) => e.kind === "run_end");
+  const cost = events.find((e) => e.kind === "cost");
   const mock = resolved.model.provider === "mock";
   const seats = resolved.agentNames.map((agent) => {
     const override = resolved.model.per_agent?.[agent];
@@ -129,5 +133,12 @@ export function readGameRecord(runDir: string): GameRecord {
     eliminations,
     seats,
     moderator_model: resolved.moderator?.model ?? "",
+    calls: (cost?.calls as number | undefined) ?? 0,
+    // everything the models read, cached or not
+    tokens_in:
+      ((cost?.tokens_in as number | undefined) ?? 0) +
+      ((cost?.cache_read_tokens as number | undefined) ?? 0) +
+      ((cost?.cache_write_tokens as number | undefined) ?? 0),
+    tokens_out: (cost?.tokens_out as number | undefined) ?? 0,
   };
 }

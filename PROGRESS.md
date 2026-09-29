@@ -131,6 +131,21 @@
   used the POST: marker (2 forgot it → silence, logged), avg latency 10.4 s.
   Village won at 1:05:00 after a last-five-minutes vote flip onto Bob.
 
+- **2026-09-29 infrastructure for large, slow batches** (docs/BATCHES.md).
+  Game record as data: `roles`, `metrics.outcomes` (the referee's
+  announcement recognized by pattern), `model.lineup` (seeded seat deal, so
+  model is not confounded with name or role). `batch.csv` gains outcome and
+  eliminations, `batch_agents.csv` gains role/model/won/survived,
+  `batch_summary.json` has win rates by model and role. Runner: `--gap`,
+  abort after 5 failed calls in a row, backoff 15 min to 2 h and replay the
+  seed, `sim resume <dir>`, detached in tmux window `batch`. Observer:
+  digest with roster, result, room phases, private reasoning; two-stage
+  rubric `observers/baseline.yaml` (cached note per game, then synthesis
+  over notes + stats). Batch page shows results so far and the runner log.
+  Baseline condition: `experiments/mafia/baseline_mid.yaml` (4 Sonnet 5 +
+  3 GPT-6 Sol dealt per game, Opus referee). NOT launched at 100; waiting
+  on the operator.
+
 ## Decisions
 
 - Observer is corpus-level (operator: "once per thousand games"), not
@@ -315,3 +330,5 @@
 
 - 2026-09-29: codex provider, launch-form group + run-level option, model
   catalog listing, pre-launch probe, docs/CODEX.md.
+- 2026-09-29: batch infrastructure: game records, lineups, slow resumable
+  runner, two-stage observer, batch results panel, docs/BATCHES.md.

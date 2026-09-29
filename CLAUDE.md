@@ -113,7 +113,7 @@ src/lib/              env.ts, web-side helpers
 src/app/              pages and route handlers (experiments, runs, SSE)
 src/components/       app components; ui/ is shadcn-generated
 scripts/sim.ts        headless entry: run | batch | analyze (replay lives in the web viewer)
-docs/                 SPEC.md, experiments/nogame.md
+docs/                 SPEC.md, BATCHES.md, CODEX.md, VERIFICATION.md, experiments/nogame.md
 runs/                 output, gitignored: runs/<timestamp>-<name>-s<seed>/
 PROGRESS.md           operator-facing status, decisions, changelog
 ```
@@ -127,6 +127,8 @@ Keep this list current. `npm run check` must always pass.
 - `npm test` — vitest
 - `npm run sim -- run experiments/nogame/A_baseline.yaml [--provider mock] [--duration SEC] [--seed N]`
 - `npm run sim -- batch experiments/nogame/J_batch.yaml --n 50 --concurrency 5 [--yes]`
+- `npm run sim -- batch <config> --n 100 --gap 300 --label NAME [--abort-after K]` — slow live batch; run it detached in tmux window `batch` (docs/BATCHES.md)
+- `npm run sim -- resume runs/batch-<dir>` — continue a batch from its directory
 - `npm run sim -- analyze <runs/dir | batch dir> [--observe observers/<name>.yaml --yes]`
 - `npm run sim -- verify runs/<dir> [--respot N]` — anti-simulation checks (docs/VERIFICATION.md)
 
@@ -149,6 +151,9 @@ Keep this list current. `npm run check` must always pass.
 - 2026-09-28: the explicit confirm checkbox is only for runs that spend API
   credits (operator request: the fear is a $1K API click, not subscription
   usage). Estimate still shown for every live run.
+- 2026-09-29: batches run detached from the web app (tmux window `batch`),
+  paced and resumable; the directory is the state. Outcome is read from the
+  referee's announcement by configured patterns, never decided by the harness.
 - 2026-09-28: mafia referees itself by default (`classic`); `manual` is the
   human-moderated variant. Night room opens only at night via moderator
   JOIN/LEAVE. Player names are listed in the common prompt (the mafia had
