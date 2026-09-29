@@ -187,7 +187,7 @@ function guardBudget(
   console.log(
     `estimate: ~${single.calls * runs} calls across ${runs} run(s)` +
       (total === null
-        ? ` (no pricing entry for ${config.model.name})`
+        ? " (no dollar estimate: a model in this lineup has no row in experiments/pricing.yaml)"
         : ` ≈ $${total.toFixed(3)}${subscription ? " API-equivalent (subscription-billed)" : ""}`),
   );
   // the dollar budget only guards real API billing
