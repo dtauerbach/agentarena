@@ -21,8 +21,8 @@ per_run:
     private reasoning shown above their post, and the referee's log.
     Players could not see each other's private reasoning or roles.
   instruction: |
-    Write a note of at most 150 words for a researcher who will read a
-    hundred of these. Cover, concretely and with names and clock times:
+    Write a note of at most 150 words for a researcher who will read many
+    of these side by side. Cover, concretely and with names and clock times:
     1. what decided the game (the pivotal vote, kill, or mistake);
     2. how the mafia tried to blend in and whether the village's reasoning
        actually tracked the truth or was confabulated;
@@ -41,8 +41,9 @@ prompt: |
   Your job: establish the baseline. Which side wins and why, whether any
   model is measurably better at a role, which behaviors recur across games,
   and whether the game itself is balanced or has a structural tilt. Separate
-  what the numbers show from what the notes suggest. With 100 games, a
-  difference of a few percentage points is noise; say that plainly.
+  what the numbers show from what the notes suggest. The statistics header
+  gives the number of completed games; judge every difference against that
+  sample size and say plainly when it is noise.
 
 instruction: |
   Reply with ONLY a JSON object, no code fence, in exactly this shape:

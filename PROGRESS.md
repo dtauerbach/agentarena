@@ -145,6 +145,18 @@
   Baseline condition: `experiments/mafia/baseline_mid.yaml` (4 Sonnet 5 +
   3 GPT-6 Sol dealt per game, Opus referee). NOT launched at 100; waiting
   on the operator.
+- **2026-09-29 usage-aware pacing, UI launch, prompts as data.** Both
+  subscription CLIs report usage windows (claude: stream-json
+  rate_limit_event; codex: session record); the runner holds the next game
+  while any window is at or above `--ceiling`, so it yields to the
+  operator's own use. Live batches launch from the batch form into a
+  detached runner; batch page has Stop / Resume. Every seat carries a
+  `prompt_id`; `prompts.json` holds the texts. Validated live: 2-game smoke
+  batch (`runs/batch-20260929-145751-smoke-baseline`, one village and one
+  mafia win, survived a 70-minute machine sleep mid-game) and the two-stage
+  observer on it (2 Sonnet notes + Opus synthesis; it flagged the referee
+  missing a 2v2 win check for five minutes and a mafia private/public gap).
+  UI launch + Stop verified in a browser against a live runner.
 
 ## Decisions
 
