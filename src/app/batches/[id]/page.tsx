@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { BatchControls } from "@/components/batch-controls";
 import { BatchRefresh } from "@/components/batch-refresh";
 import { ObserveButton } from "@/components/observe-button";
 import { Badge } from "@/components/ui/badge";
+import { runnerPid } from "@/lib/batch-launcher";
 import { batchDirFromId } from "@/lib/runs-fs";
 import {
   analyzeBatch,
@@ -45,6 +47,7 @@ export default async function BatchPage({
   };
   const runDirs = listBatchRunDirs(dir);
   const inProgress = runDirs.length < info.n;
+  const running = inProgress && runnerPid(dir) !== null;
   if (!existsSync(join(dir, "batch.csv")) && runDirs.length > 0 && !inProgress)
     analyzeBatch(dir);
   const csvPath = join(dir, "batch.csv");
@@ -76,10 +79,15 @@ export default async function BatchPage({
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-semibold">{info.label ?? id}</h1>
           {inProgress && (
-            <Badge>
-              running · {runDirs.length}/{info.n}
+            <Badge variant={running ? "default" : "outline"}>
+              {running ? "running" : "stopped"} · {runDirs.length}/{info.n}
             </Badge>
           )}
+          <BatchControls
+            batchId={id}
+            running={running}
+            complete={!inProgress}
+          />
         </div>
         <p className="text-sm text-muted-foreground">
           {info.name} · {runDirs.length}/{info.n} runs

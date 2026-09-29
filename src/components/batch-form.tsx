@@ -7,49 +7,48 @@ import { Input } from "@/components/ui/input";
 
 type Props = { experiment: string; file: string };
 
-type Estimate = {
-  calls: number;
-  inputTokens: number;
-  outputTokens: number;
-  usd: number | null;
+type Plan = {
+  estimate: { calls: number; usd: number | null };
+  model: string;
+  provider: string;
+  providers: string[];
+  lineup: string[];
+  moderator: string | null;
 };
 
-// batches: n seeds of one config. Mock is instant; live runs the games one
-// at a time in the background and needs an explicit confirm on n× the
-// single-run estimate.
+// Batches: n seeds of one variation. Mock plays instantly. Live plays the
+// variation exactly as its YAML configures it (provider, lineup, referee)
+// in a detached runner that paces itself and can be stopped and resumed.
 export function BatchForm({ experiment, file }: Props) {
   const router = useRouter();
   const [n, setN] = useState("5");
-  const [provider, setProvider] = useState<
-    "mock" | "claude_code" | "anthropic"
-  >("mock");
+  const [mode, setMode] = useState<"mock" | "live">("mock");
   const [label, setLabel] = useState("");
+  const [gapMinutes, setGapMinutes] = useState("5");
+  const [ceiling, setCeiling] = useState("50");
   const [confirm, setConfirm] = useState(false);
-  const [estimate, setEstimate] = useState<Estimate | null>(null);
-  const [model, setModel] = useState("");
+  const [plan, setPlan] = useState<Plan | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const live = provider !== "mock";
+  const live = mode === "live";
 
-  const fetchEstimate = useCallback(async () => {
+  const fetchPlan = useCallback(async () => {
     const response = await fetch("/api/estimate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ experiment, file, provider }),
+      body: JSON.stringify({ experiment, file }),
     });
-    if (!response.ok) return;
-    const body = (await response.json()) as {
-      estimate: Estimate;
-      model: string;
-    };
-    setEstimate(body.estimate);
-    setModel(body.model);
-  }, [experiment, file, provider]);
+    if (response.ok) setPlan((await response.json()) as Plan);
+  }, [experiment, file]);
 
   useEffect(() => {
-    if (live) void fetchEstimate();
-  }, [live, fetchEstimate]);
+    if (live) void fetchPlan();
+  }, [live, fetchPlan]);
+
+  const spendsCredits =
+    plan?.providers.some((p) => p === "anthropic" || p === "openai") ?? false;
+  const games = Number(n) || 0;
 
   const launch = async () => {
     setBusy(true);
@@ -61,9 +60,14 @@ export function BatchForm({ experiment, file }: Props) {
         body: JSON.stringify({
           experiment,
           file,
-          n: Number(n),
-          provider,
+          n: games,
+          mode,
           label: label.trim() === "" ? undefined : label.trim(),
+          gapSeconds: Math.round((Number(gapMinutes) || 0) * 60),
+          ceiling:
+            Number(ceiling) > 0 && Number(ceiling) <= 100
+              ? Number(ceiling) / 100
+              : undefined,
           confirm,
         }),
       });
@@ -80,18 +84,14 @@ export function BatchForm({ experiment, file }: Props) {
     }
   };
 
-  const totalUsd =
-    estimate?.usd != null ? estimate.usd * (Number(n) || 0) : null;
+  const field = "flex flex-col gap-1 text-xs text-muted-foreground";
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <div className="flex flex-wrap items-end gap-3">
         <span className="text-xs font-medium text-muted-foreground">
           batch (seeds 1..n)
         </span>
-        <label
-          htmlFor="batch-n"
-          className="flex flex-col gap-1 text-xs text-muted-foreground"
-        >
+        <label htmlFor="batch-n" className={field}>
           games
           <Input
             id="batch-n"
@@ -101,34 +101,61 @@ export function BatchForm({ experiment, file }: Props) {
             inputMode="numeric"
           />
         </label>
-        <label
-          htmlFor="batch-provider"
-          className="flex flex-col gap-1 text-xs text-muted-foreground"
-        >
-          provider
+        <label htmlFor="batch-mode" className={field}>
+          play with
           <select
-            id="batch-provider"
+            id="batch-mode"
             className="h-9 rounded-md border bg-transparent px-2 text-sm"
-            value={provider}
+            value={mode}
             onChange={(e) => {
-              setProvider(e.target.value as typeof provider);
+              setMode(e.target.value as typeof mode);
               setConfirm(false);
             }}
           >
-            <option value="mock">mock (free)</option>
-            <option value="claude_code">claude_code (subscription)</option>
-            <option value="anthropic">anthropic (API credits)</option>
+            <option value="mock">mock (free, instant)</option>
+            <option value="live">
+              real models, as this variation is set up
+            </option>
           </select>
         </label>
-        <label
-          htmlFor="batch-label"
-          className="flex flex-col gap-1 text-xs text-muted-foreground"
-        >
+        {live && (
+          <>
+            <label
+              htmlFor="batch-gap"
+              className={field}
+              title="Wall-clock pause after each game"
+            >
+              pause between games (min)
+              <Input
+                id="batch-gap"
+                className="w-24"
+                value={gapMinutes}
+                onChange={(e) => setGapMinutes(e.target.value)}
+                inputMode="decimal"
+              />
+            </label>
+            <label
+              htmlFor="batch-ceiling"
+              className={field}
+              title="A game starts only while every usage window of your subscriptions is below this. Your own usage counts, so the batch yields to your ordinary work."
+            >
+              usage ceiling (%)
+              <Input
+                id="batch-ceiling"
+                className="w-20"
+                value={ceiling}
+                onChange={(e) => setCeiling(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+          </>
+        )}
+        <label htmlFor="batch-label" className={field}>
           batch name (optional)
           <Input
             id="batch-label"
             className="w-44"
-            placeholder="e.g. mafia-night-one"
+            placeholder="e.g. baseline-mid-100"
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
@@ -136,40 +163,49 @@ export function BatchForm({ experiment, file }: Props) {
         <Button
           variant="outline"
           onClick={launch}
-          disabled={busy || (live && !confirm)}
+          disabled={busy || games < 1 || (live && spendsCredits && !confirm)}
         >
           {busy ? "Starting…" : "Run batch"}
         </Button>
       </div>
       {live && (
         <div className="space-y-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <p>
-            {estimate ? (
-              <>
-                ~{estimate.calls} calls per game on {model};{" "}
-                <span className="font-semibold">
-                  {totalUsd === null
-                    ? "no pricing entry"
-                    : `~$${totalUsd.toFixed(2)} API-equivalent for ${n} games`}
+          {plan ? (
+            <>
+              <p>
+                Players:{" "}
+                <span className="font-medium">
+                  {plan.lineup.length > 0
+                    ? `${plan.lineup.join(" + ")}, dealt onto the seats at random each game`
+                    : `${plan.model} (${plan.provider})`}
                 </span>
-                {provider === "claude_code" &&
-                  " — bills your Claude subscription's usage window"}
-                . Games run one at a time; the batch page fills in live.
-              </>
-            ) : (
-              "Estimating…"
-            )}
-          </p>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={confirm}
-              onChange={(e) => setConfirm(e.target.checked)}
-            />
-            {provider === "anthropic"
-              ? `Spend real API credit on ${n} games`
-              : `Spend Claude subscription usage on ${n} games`}
-          </label>
+                {plan.moderator && <> · referee {plan.moderator}</>}.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Runs in the background in its own process, one game at a time,
+                and keeps going if this page or the web app closes. It starts a
+                game only while every usage window is under {ceiling || "—"}%,
+                waits out usage limits, and can be stopped and resumed from the
+                batch page. Up to ~{plan.estimate.calls} model calls per game;
+                most games end well before that.
+              </p>
+              {spendsCredits && (
+                <label className="flex items-center gap-2 text-destructive">
+                  <input
+                    type="checkbox"
+                    checked={confirm}
+                    onChange={(e) => setConfirm(e.target.checked)}
+                  />
+                  This variation uses API credits (real money)
+                  {plan.estimate.usd !== null &&
+                    `: about $${(plan.estimate.usd * games).toFixed(2)} for ${games} games`}
+                  . Spend it.
+                </label>
+              )}
+            </>
+          ) : (
+            <p>Reading the variation…</p>
+          )}
         </div>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}

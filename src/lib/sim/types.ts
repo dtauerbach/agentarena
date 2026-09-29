@@ -17,6 +17,15 @@ export type ProviderRequest = {
 
 export type ProviderResult = { text: string; usage: Usage; raw: unknown };
 
+// how full a subscription's usage window is, as the provider's CLI reports
+// it after a call; includes the operator's own use of the same account
+export type UsageWindow = {
+  provider: string;
+  window: string;
+  used: number; // 0..1
+  resets_at: number; // epoch seconds
+};
+
 export type Provider = {
   complete(req: ProviderRequest): Promise<ProviderResult>;
 };

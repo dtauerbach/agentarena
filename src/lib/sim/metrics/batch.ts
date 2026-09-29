@@ -74,6 +74,7 @@ function agentRow(
     role: seat?.role ?? "",
     provider: seat?.provider ?? "",
     model: seat?.model ?? "",
+    prompt_id: seat?.prompt.id ?? "",
     outcome: game.outcome,
     won: seat?.won === null || seat === undefined ? "" : seat.won ? 1 : 0,
     survived: seat?.survived === false ? 0 : 1,
@@ -141,6 +142,14 @@ export type BatchSummary = {
     win_rate: number;
     survival_rate: number;
   }[];
+  // the same table keyed by what the seat was told instead of who played it
+  by_prompt_role: {
+    prompt_id: string;
+    role: string;
+    seats: number;
+    wins: number;
+    win_rate: number;
+  }[];
   calls: number;
   tokens_in: number;
   tokens_out: number;
@@ -158,10 +167,24 @@ export function summarizeBatch(games: { game: GameRecord }[]): BatchSummary {
       survived: number;
     }
   >();
+  const promptCells = new Map<
+    string,
+    { prompt_id: string; role: string; seats: number; wins: number }
+  >();
   for (const { game } of games) {
     outcomes[game.outcome] = (outcomes[game.outcome] ?? 0) + 1;
     for (const seat of game.seats) {
       if (seat.won === null) continue;
+      const promptKey = `${seat.prompt.id}|${seat.role}`;
+      const promptCell = promptCells.get(promptKey) ?? {
+        prompt_id: seat.prompt.id,
+        role: seat.role,
+        seats: 0,
+        wins: 0,
+      };
+      promptCell.seats += 1;
+      if (seat.won) promptCell.wins += 1;
+      promptCells.set(promptKey, promptCell);
       const key = `${seat.model}|${seat.role}`;
       const cell = cells.get(key) ?? {
         model: seat.model,
@@ -197,6 +220,13 @@ export function summarizeBatch(games: { game: GameRecord }[]): BatchSummary {
       .sort(
         (a, b) =>
           a.role.localeCompare(b.role) || a.model.localeCompare(b.model),
+      ),
+    by_prompt_role: [...promptCells.values()]
+      .map((c) => ({ ...c, win_rate: c.wins / c.seats }))
+      .sort(
+        (a, b) =>
+          a.role.localeCompare(b.role) ||
+          a.prompt_id.localeCompare(b.prompt_id),
       ),
     calls: games.reduce((n, g) => n + g.game.calls, 0),
     tokens_in: games.reduce((n, g) => n + g.game.tokens_in, 0),
@@ -246,6 +276,23 @@ export function analyzeBatch(batchDir: string): {
   writeFileSync(
     join(batchDir, "batch_summary.json"),
     JSON.stringify(summary, null, 2),
+  );
+  // every distinct prompt any seat was given, by id, with its full text
+  const prompts: Record<string, unknown> = {};
+  for (const { game } of games)
+    for (const seat of game.seats)
+      prompts[seat.prompt.id] ??= {
+        ...seat.prompt,
+        roles: [] as string[],
+      };
+  for (const { game } of games)
+    for (const seat of game.seats) {
+      const entry = prompts[seat.prompt.id] as { roles: string[] };
+      if (!entry.roles.includes(seat.role)) entry.roles.push(seat.role);
+    }
+  writeFileSync(
+    join(batchDir, "prompts.json"),
+    JSON.stringify(prompts, null, 2),
   );
   return { runs: runRows.length, agents: agentRows.length, summary };
 }

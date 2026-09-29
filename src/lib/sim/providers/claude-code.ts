@@ -1,6 +1,66 @@
 import { execFile } from "node:child_process";
 import type { Effort, Thinking } from "../config";
-import type { Provider, ProviderResult } from "../types";
+import type { Provider, ProviderResult, UsageWindow } from "../types";
+
+const TIMEOUT_MS = 180_000;
+
+type CliResult = {
+  type?: string;
+  result?: string;
+  is_error?: boolean;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
+  };
+};
+
+type CliRateLimit = {
+  type?: string;
+  rate_limit_info?: {
+    unifiedWindows?: Record<
+      string,
+      { utilization?: number; resetsAt?: number }
+    >;
+  };
+};
+
+// stream-json is one event per line: the final `result` (same shape the
+// plain json format prints) and the account's usage-window state
+function parseStream(stdout: string): {
+  result: CliResult | undefined;
+  limits: UsageWindow[];
+} {
+  let result: CliResult | undefined;
+  let limits: UsageWindow[] = [];
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith("{")) continue;
+    let event: CliResult & CliRateLimit;
+    try {
+      event = JSON.parse(line) as CliResult & CliRateLimit;
+    } catch {
+      continue;
+    }
+    if (event.type === "result") result = event;
+    if (event.type === "rate_limit_event")
+      limits = Object.entries(
+        event.rate_limit_info?.unifiedWindows ?? {},
+      ).flatMap(([window, state]) =>
+        typeof state.utilization === "number"
+          ? [
+              {
+                provider: "claude_code",
+                window,
+                used: state.utilization,
+                resets_at: state.resetsAt ?? 0,
+              },
+            ]
+          : [],
+      );
+  }
+  return { result, limits };
+}
 
 // Runs each wake as a single `claude -p` call, billed to the operator's
 // Claude subscription instead of API credits. Purity caveats, measured and
@@ -50,7 +110,8 @@ export function makeClaudeCodeProvider(options: {
         options.model,
         ...(options.effort !== undefined ? ["--effort", options.effort] : []),
         "--output-format",
-        "json",
+        "stream-json",
+        "--verbose",
       ];
       const env = { ...process.env };
       // never bill the API by accident, never nest into this session's auth
@@ -66,9 +127,14 @@ export function makeClaudeCodeProvider(options: {
       env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(req.maxTokens);
       // one retry on a process-level failure (non-zero exit, no result):
       // the CLI occasionally dies transiently; a model reply is never retried
+      const started = Date.now();
       const attempt = (retries: number): Promise<ProviderResult> =>
         run().catch((error: unknown) => {
-          if (retries === 0 || !(error instanceof ProcessFailure)) throw error;
+          // a call that outlived its own timeout means the machine slept
+          // through it; that is not the model's failure either
+          const slept = Date.now() - started > 2 * TIMEOUT_MS;
+          if (retries === 0 || !(error instanceof ProcessFailure || slept))
+            throw error;
           return new Promise<ProviderResult>((resolve) =>
             setTimeout(resolve, 2000),
           ).then(() => attempt(retries - 1));
@@ -78,7 +144,7 @@ export function makeClaudeCodeProvider(options: {
           const child = execFile(
             "claude",
             args,
-            { env, timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
+            { env, timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
             (error, stdout, stderr) => {
               if (error) {
                 reject(
@@ -88,22 +154,11 @@ export function makeClaudeCodeProvider(options: {
                 );
                 return;
               }
-              let parsed: {
-                result?: string;
-                is_error?: boolean;
-                usage?: {
-                  input_tokens?: number;
-                  output_tokens?: number;
-                  cache_read_input_tokens?: number;
-                  cache_creation_input_tokens?: number;
-                };
-              };
-              try {
-                parsed = JSON.parse(stdout) as typeof parsed;
-              } catch {
+              const { result: parsed, limits } = parseStream(stdout);
+              if (parsed === undefined) {
                 reject(
                   new Error(
-                    `claude -p returned non-JSON: ${stdout.slice(0, 200)}`,
+                    `claude -p returned no result: ${stdout.slice(0, 200)}`,
                   ),
                 );
                 return;
@@ -125,7 +180,7 @@ export function makeClaudeCodeProvider(options: {
                   cacheWriteTokens:
                     parsed.usage?.cache_creation_input_tokens ?? 0,
                 },
-                raw: parsed,
+                raw: { ...parsed, _limits: limits },
               });
             },
           );

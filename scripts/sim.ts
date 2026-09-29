@@ -9,7 +9,7 @@ import {
   readOpenAIKey,
 } from "../src/lib/env";
 import { readManifest, runBatch } from "../src/lib/sim/batch";
-import type { ConfigOverrides } from "../src/lib/sim/config";
+import type { Config, ConfigOverrides } from "../src/lib/sim/config";
 import { loadConfig } from "../src/lib/sim/config";
 import { runEngine } from "../src/lib/sim/engine";
 import { estimateCost } from "../src/lib/sim/estimate";
@@ -29,6 +29,7 @@ import {
 import { probeClaudeCode } from "../src/lib/sim/providers/claude-code";
 import { probeCodex } from "../src/lib/sim/providers/codex";
 import { makeMockProvider } from "../src/lib/sim/providers/mock";
+import type { UsageWindow } from "../src/lib/sim/types";
 import { verifyRun } from "../src/lib/sim/verify";
 
 function usage(): never {
@@ -36,8 +37,8 @@ function usage(): never {
     [
       "usage:",
       "  npm run sim -- run <config.yaml> [--provider mock|claude_code|codex|anthropic] [--duration SEC] [--seed N] [--model ID] [--yes]",
-      "  npm run sim -- batch <config.yaml> --n N [--gap SEC] [--abort-after K] [--label NAME] [--concurrency C] [--seed-start S] [--provider ...] [--yes]",
-      "  npm run sim -- resume <batch dir> [--gap SEC]",
+      "  npm run sim -- batch <config.yaml> --n N [--gap SEC] [--ceiling 0.5] [--abort-after K] [--label NAME] [--concurrency C] [--seed-start S] [--provider ...] [--yes]",
+      "  npm run sim -- resume <batch dir> [--gap SEC] [--ceiling 0.5]",
       "  npm run sim -- analyze <run dir | batch dir> [--observe observers/<name>.yaml] [--yes]",
       "  npm run sim -- verify <run dir> [--respot N]",
     ].join("\n"),
@@ -53,6 +54,8 @@ type Flags = ConfigOverrides & {
   seedStart: number;
   gap?: number;
   abortAfter?: number;
+  ceiling?: number;
+  batchDir?: string;
   label?: string;
   observe?: string;
   respot: number;
@@ -117,6 +120,13 @@ function parseFlags(rest: string[]): Flags {
         break;
       case "--abort-after":
         flags.abortAfter = Number(value);
+        break;
+      case "--ceiling":
+        flags.ceiling = Number(value);
+        if (!(flags.ceiling > 0 && flags.ceiling <= 1)) usage();
+        break;
+      case "--batch-dir":
+        flags.batchDir = value;
         break;
       case "--seed-start":
         flags.seedStart = Number(value);
@@ -241,6 +251,33 @@ async function commandRun(configPath: string, flags: Flags): Promise<void> {
   );
 }
 
+// one tiny call per subscription provider the config uses, to read how
+// full its usage windows are
+async function probeLimits(config: Config): Promise<UsageWindow[]> {
+  const request = {
+    system: "Reply with the single word OK.",
+    blocks: ["OK?"],
+    cacheableBlocks: 0,
+    maxTokens: 8,
+    temperature: 0,
+  };
+  const specs = [
+    { provider: "claude_code" as const, model: firstClaudeCodeModel(config) },
+    { provider: "codex" as const, model: firstCodexModel(config) },
+  ];
+  const limits: UsageWindow[] = [];
+  for (const { provider, model } of specs) {
+    if (model === undefined) continue;
+    if (!requiredProviders(config).includes(provider)) continue;
+    const result = await makeProvider(
+      { provider, model, seed: 1 },
+      providerKeys(),
+    ).complete(request);
+    limits.push(...((result.raw as { _limits?: UsageWindow[] })._limits ?? []));
+  }
+  return limits;
+}
+
 async function playBatch(
   configPath: string,
   overrides: ConfigOverrides,
@@ -250,6 +287,8 @@ async function playBatch(
     concurrency: number;
     gap?: number;
     abortAfter?: number;
+    ceiling?: number;
+    batchDir?: string;
     label?: string;
     resumeDir?: string;
   },
@@ -272,6 +311,9 @@ async function playBatch(
       ? { resumeDir: options.resumeDir }
       : {}),
     ...(options.gap !== undefined ? { gapSeconds: options.gap } : {}),
+    ...(options.ceiling !== undefined ? { ceiling: options.ceiling } : {}),
+    ...(options.batchDir !== undefined ? { batchDir: options.batchDir } : {}),
+    ...(live ? { probeLimits: () => probeLimits(probe) } : {}),
     // live games abort on a dead provider by default; mock never fails
     ...(options.abortAfter !== undefined
       ? { abortAfterErrors: options.abortAfter }
@@ -321,6 +363,8 @@ async function commandBatch(configPath: string, flags: Flags): Promise<void> {
     concurrency: live && !flags.concurrencySet ? 1 : flags.concurrency,
     ...(flags.gap !== undefined ? { gap: flags.gap } : {}),
     ...(flags.abortAfter !== undefined ? { abortAfter: flags.abortAfter } : {}),
+    ...(flags.ceiling !== undefined ? { ceiling: flags.ceiling } : {}),
+    ...(flags.batchDir !== undefined ? { batchDir: flags.batchDir } : {}),
     ...(flags.label !== undefined ? { label: flags.label } : {}),
   });
 }
@@ -333,6 +377,7 @@ async function commandResume(batchDir: string, flags: Flags): Promise<void> {
     concurrency: manifest.concurrency ?? 1,
     resumeDir: batchDir,
     ...(flags.gap !== undefined ? { gap: flags.gap } : {}),
+    ...(flags.ceiling !== undefined ? { ceiling: flags.ceiling } : {}),
     ...(manifest.abort_after_errors !== undefined
       ? { abortAfter: manifest.abort_after_errors }
       : {}),

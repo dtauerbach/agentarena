@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -15,7 +16,41 @@ type Resolved = {
   metrics?: {
     outcomes?: { name: string; pattern: string; winners?: string[] }[];
   };
+  common_prompt?: string;
+  private_prompts?: Record<string, string>;
+  render?: { turn_instruction?: string };
 };
+
+// everything a seat was told, as one addressable unit: the shared prompt,
+// its private prompt, and the instruction it gets at every turn
+export type SeatPrompt = {
+  id: string;
+  common_prompt: string;
+  private_prompt: string;
+  turn_instruction: string;
+};
+
+function seatPrompt(resolved: Resolved, agent: string): SeatPrompt {
+  const parts = {
+    common_prompt: resolved.common_prompt ?? "",
+    private_prompt: resolved.private_prompts?.[agent] ?? "",
+    turn_instruction: resolved.render?.turn_instruction ?? "",
+  };
+  // Two seats told the same thing about different players (each mafia's
+  // "your partner is ...") hold the same prompt: player names in the private
+  // prompt are masked for the id. The stored text stays verbatim.
+  const masked = resolved.agentNames.reduce(
+    (text, name) => text.split(name).join("{player}"),
+    parts.private_prompt,
+  );
+  return {
+    id: createHash("sha256")
+      .update(JSON.stringify({ ...parts, private_prompt: masked }))
+      .digest("hex")
+      .slice(0, 10),
+    ...parts,
+  };
+}
 
 export type SeatRecord = {
   agent: string;
@@ -25,6 +60,7 @@ export type SeatRecord = {
   eliminated_at: number | null;
   survived: boolean;
   won: boolean | null;
+  prompt: SeatPrompt;
 };
 
 export type GameRecord = {
@@ -120,6 +156,7 @@ export function readGameRecord(runDir: string): GameRecord {
       eliminated_at: muted.get(agent) ?? null,
       survived: !muted.has(agent),
       won: outcome === "none" || role === "" ? null : winners.includes(role),
+      prompt: seatPrompt(resolved, agent),
     };
   });
   return {

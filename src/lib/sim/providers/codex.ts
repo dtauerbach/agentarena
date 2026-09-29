@@ -1,10 +1,18 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Effort } from "../config";
-import type { Provider, ProviderResult } from "../types";
+import type { Provider, ProviderResult, UsageWindow } from "../types";
+
+const TIMEOUT_MS = 180_000;
 
 // Runs each wake as a single `codex exec` call, billed to the operator's
 // ChatGPT subscription instead of API credits — the OpenAI counterpart of
@@ -97,6 +105,65 @@ export function listCodexModels(): Promise<string[]> {
   });
 }
 
+type LimitSlot = {
+  used_percent?: number;
+  window_minutes?: number;
+  resets_at?: number;
+};
+
+// Codex writes the account's usage-window state into the session record,
+// not into its JSON output; read it back by thread id.
+function readLimits(threadId: string | undefined): UsageWindow[] {
+  if (threadId === undefined) return [];
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // filed by date; a call near midnight may land on either side
+  const days = new Set([
+    `${now.getFullYear()}/${pad(now.getMonth() + 1)}/${pad(now.getDate())}`,
+    `${now.getUTCFullYear()}/${pad(now.getUTCMonth() + 1)}/${pad(now.getUTCDate())}`,
+  ]);
+  for (const day of days) {
+    const dir = join(codexHome(), "sessions", day);
+    if (!existsSync(dir)) continue;
+    const file = readdirSync(dir).find((name) =>
+      name.endsWith(`${threadId}.jsonl`),
+    );
+    if (file === undefined) continue;
+    const lines = readFileSync(join(dir, file), "utf8").split("\n").reverse();
+    for (const line of lines) {
+      if (!line.includes('"rate_limits"')) continue;
+      let limits: Record<string, unknown> | undefined;
+      try {
+        limits = (
+          JSON.parse(line) as {
+            payload?: { rate_limits?: Record<string, unknown> };
+          }
+        ).payload?.rate_limits;
+      } catch {
+        continue; // a partial line while the CLI is still writing
+      }
+      if (limits === undefined) continue;
+      return ["primary", "secondary"].flatMap((slot) => {
+        const state = limits[slot] as LimitSlot | null | undefined;
+        if (!state || typeof state.used_percent !== "number") return [];
+        const minutes = state.window_minutes ?? 0;
+        return [
+          {
+            provider: "codex",
+            window:
+              minutes >= 10_000
+                ? "seven_day"
+                : `${Math.round(minutes / 60)}_hour`,
+            used: state.used_percent / 100,
+            resets_at: state.resets_at ?? 0,
+          },
+        ];
+      });
+    }
+  }
+  return [];
+}
+
 function codexBinary(): string {
   const local = resolve("node_modules", ".bin", "codex");
   return existsSync(local) ? local : "codex";
@@ -171,7 +238,7 @@ export function makeCodexProvider(options: {
           const child = execFile(
             codexBinary(),
             args,
-            { env, timeout: 180_000, maxBuffer: 10 * 1024 * 1024 },
+            { env, timeout: TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024 },
             (error, stdout, stderr) => {
               const events: CodexEvent[] = [];
               for (const line of stdout.split("\n")) {
@@ -220,6 +287,13 @@ export function makeCodexProvider(options: {
                 },
                 raw: {
                   codex: true,
+                  _limits:
+                    process.env.ARENA_EPHEMERAL_SESSIONS === "1"
+                      ? []
+                      : readLimits(
+                          events.find((e) => e.type === "thread.started")
+                            ?.thread_id,
+                        ),
                   thread_id: events.find((e) => e.type === "thread.started")
                     ?.thread_id,
                   model: options.model,
@@ -231,9 +305,14 @@ export function makeCodexProvider(options: {
           );
           child.stdin?.end(req.blocks.join("\n\n"));
         });
+      const started = Date.now();
       const attempt = (retries: number): Promise<ProviderResult> =>
         run().catch((error: unknown) => {
-          if (retries === 0 || !(error instanceof ProcessFailure)) throw error;
+          // a call that outlived its own timeout means the machine slept
+          // through it; that is not the model's failure either
+          const slept = Date.now() - started > 2 * TIMEOUT_MS;
+          if (retries === 0 || !(error instanceof ProcessFailure || slept))
+            throw error;
           return new Promise<void>((r) => setTimeout(r, 2000)).then(() =>
             attempt(retries - 1),
           );

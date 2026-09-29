@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -88,6 +88,12 @@ describe("game record", () => {
       won: false,
       survived: false,
     });
+    // what each seat was told is addressable: same text, same id
+    const charlie = game.seats.find((s) => s.agent === "Charlie");
+    const alicePrompt = game.seats.find((s) => s.agent === "Alice")?.prompt;
+    expect(alicePrompt?.id).toMatch(/^[0-9a-f]{10}$/);
+    expect(charlie?.prompt.id).toBe(alicePrompt?.id);
+    expect(alicePrompt?.common_prompt).toContain("playing Mafia");
     const alice = game.seats.find((s) => s.agent === "Alice");
     expect(alice).toMatchObject({
       model: "m-default",
@@ -123,6 +129,8 @@ describe("game record", () => {
     const { summary } = analyzeBatch(batch);
     expect(summary.games).toBe(2);
     expect(summary.outcomes).toEqual({ mafia: 1, village: 1 });
+    expect(existsSync(join(batch, "prompts.json"))).toBe(true);
+    expect(summary.by_prompt_role.map((c) => c.seats)).toEqual([2, 6]);
     const mafiaCell = summary.by_model_role.find((c) => c.role === "mafia");
     expect(mafiaCell).toMatchObject({ model: "gpt-x", seats: 2, wins: 1 });
     const villagerCell = summary.by_model_role.find(

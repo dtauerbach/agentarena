@@ -5,6 +5,7 @@ import { experimentPath } from "@/lib/experiments";
 import { loadConfig } from "@/lib/sim/config";
 import { estimateCost } from "@/lib/sim/estimate";
 import { loadPricing } from "@/lib/sim/pricing";
+import { requiredProviders } from "@/lib/sim/providers";
 import { listCodexModels } from "@/lib/sim/providers/codex";
 
 const modelChoiceSchema = z.object({
@@ -15,9 +16,8 @@ const modelChoiceSchema = z.object({
 const estimateSchema = z.object({
   experiment: z.string(),
   file: z.string(),
-  provider: z
-    .enum(["mock", "claude_code", "codex", "anthropic"])
-    .default("anthropic"),
+  // omitted = the variation as configured
+  provider: z.enum(["mock", "claude_code", "codex", "anthropic"]).optional(),
   model: z.string().optional(),
   perAgent: z.record(z.string(), modelChoiceSchema).optional(),
   moderator: modelChoiceSchema.optional(),
@@ -64,7 +64,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       model: config.model.name,
       models: Object.keys(pricing),
       codexModels: await listCodexModels(),
-      hasKey: hasCredentialsFor(provider),
+      hasKey: hasCredentialsFor(provider ?? config.model.provider),
+      provider: config.model.provider,
+      providers: requiredProviders(config),
+      lineup: config.model.lineup.map((seat) => `${seat.count}× ${seat.name}`),
+      moderator: config.moderator?.model ?? null,
       credentials: {
         claude_code: hasCredentialsFor("claude_code"),
         codex: hasCredentialsFor("codex"),

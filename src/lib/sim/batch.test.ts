@@ -1,11 +1,11 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { completedSeeds, runBatch } from "./batch";
+import { completedSeeds, limitsOf, runBatch } from "./batch";
 import { listBatchRunDirs } from "./metrics/batch";
 import { makeMockProvider } from "./providers/mock";
-import type { Provider } from "./types";
+import type { Provider, UsageWindow } from "./types";
 
 const CONFIG = "experiments/nogame/A_baseline.yaml";
 const OVERRIDES = { provider: "mock" as const, duration: 600 };
@@ -84,5 +84,62 @@ describe("slow batch runner", () => {
     });
     expect(played).toEqual([3, 4]);
     expect([...completedSeeds(first)].sort()).toEqual([1, 2, 3, 4]);
+  });
+
+  it("holds the next game while a usage window is at or above the ceiling", async () => {
+    const baseDir = mkdtempSync(join(tmpdir(), "arena-batch-"));
+    const slept: number[] = [];
+    // the operator is busy: the window reads 70%, then 55%, then frees up
+    const readings = [0.7, 0.55, 0.2];
+    let probes = 0;
+    const reading = (used: number): UsageWindow[] => [
+      { provider: "claude_code", window: "five_hour", used, resets_at: 0 },
+      { provider: "codex", window: "seven_day", used: 0.01, resets_at: 0 },
+    ];
+    const batchDir = await runBatch({
+      configPath: CONFIG,
+      overrides: OVERRIDES,
+      n: 1,
+      seedStart: 1,
+      concurrency: 1,
+      baseDir,
+      ceiling: 0.5,
+      recheckSeconds: 900,
+      probeLimits: () =>
+        Promise.resolve(reading(readings[Math.min(probes++, 2)] as number)),
+      sleep: (seconds) => {
+        slept.push(seconds);
+        return Promise.resolve();
+      },
+      makeProvider: (seed) => makeMockProvider(seed),
+    });
+    expect(probes).toBe(3);
+    expect(slept).toEqual([900, 900]);
+    const log = readFileSync(join(batchDir, "batch.log"), "utf8");
+    expect(log).toContain(
+      "holding: claude_code five hour 70% at or above the 50% ceiling",
+    );
+    expect([...completedSeeds(batchDir)]).toEqual([1]);
+  });
+
+  it("reads the latest usage windows off a game's own calls", () => {
+    const dir = mkdtempSync(join(tmpdir(), "arena-limits-"));
+    const call = (provider: string, used: number) =>
+      JSON.stringify({
+        response: {
+          raw: {
+            _limits: [{ provider, window: "seven_day", used, resets_at: 5 }],
+          },
+        },
+      });
+    writeFileSync(
+      join(dir, "calls.jsonl"),
+      `${[call("codex", 0.01), call("claude_code", 0.3), call("codex", 0.02), "{}"].join("\n")}\n`,
+    );
+    expect(
+      limitsOf(dir)
+        .map((w) => `${w.provider}:${w.used}`)
+        .sort(),
+    ).toEqual(["claude_code:0.3", "codex:0.02"]);
   });
 });
