@@ -51,19 +51,26 @@ To log out: `CODEX_HOME=.sandbox/codex-home npx codex logout`.
 
 ## What the agent sees (purity)
 
-Measured with `codex debug prompt-input`, not assumed. With the flags this
-provider passes and an explicit model, the model-visible input is exactly
-two items: the experiment's system prompt (as developer instructions) and
-the wake prompt. Switched off: the environment block (cwd, date, shell),
-the skills list, plugin/app/permission instructions, project docs
-(AGENTS.md), web search, and every tool feature. The working directory is an
-empty scratch dir, so nothing from this repository can leak in.
+Measured live on 2026-09-29 with codex-cli 0.159.0, not assumed.
 
-Known impurity, disclosed: Codex's own base system prompt (a coding-agent
-preamble, 17-21K characters depending on the model) sits underneath the
-experiment's instructions. It is constant across agents, wakes, and
-conditions. For a contamination-free GPT agent use the `openai` provider
-with an API key.
+- **System prompt: the experiment's own.** It is passed as
+  `model_instructions_file`, which replaces Codex's base instructions (a
+  coding-agent preamble of 17-21K characters). The session record confirms
+  it: `base_instructions.provenance = custom`. Before the replacement a
+  probe answered "I am Codex, a collaborative AI coding assistant"; after,
+  it does not.
+- **Input: the wake prompt only.** `codex debug prompt-input` shows no
+  environment block, skills list, plugin/app/permission instructions, or
+  project docs (AGENTS.md). The working directory is an empty scratch dir,
+  so nothing from this repository can leak in.
+- **Known impurity, disclosed:** about 1,750 input tokens of built-in tool
+  definitions that the CLI always attaches (`exec`, `wait`,
+  `request_user_input`), constant across agents, wakes and conditions. No
+  feature flag removes them. The sandbox is read-only and the directory
+  empty, so a tool call can do nothing, but an agent can see that tools
+  exist. For a contamination-free GPT agent use the `openai` provider with
+  an API key.
+- `temperature` and `max_tokens` are not controllable.
 
 ## Audit trail
 

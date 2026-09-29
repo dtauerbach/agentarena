@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Effort } from "../config";
@@ -7,13 +8,14 @@ import type { Provider, ProviderResult } from "../types";
 
 // Runs each wake as a single `codex exec` call, billed to the operator's
 // ChatGPT subscription instead of API credits — the OpenAI counterpart of
-// the claude_code provider. Purity: the agent's system prompt is passed as
-// developer instructions ON TOP of Codex's own base instructions (a coding
-// agent preamble the CLI does not let us remove); every tool feature is
-// disabled, the sandbox is read-only, the working directory is an empty
-// scratch dir and project docs are off, so nothing from this repository
-// (AGENTS.md, CLAUDE.md) reaches an agent. `temperature` and `max_tokens`
-// are not controllable. See docs/SPEC.md §10 for the measured impurities.
+// the claude_code provider. Purity, measured live (docs/CODEX.md): the
+// experiment's system prompt REPLACES Codex's base instructions (the session
+// record shows provenance "custom"); the environment block, skills list,
+// project docs and every optional tool feature are off; the working
+// directory is an empty scratch dir, so nothing from this repository reaches
+// an agent. What remains is a constant ~1.7K tokens of built-in tool
+// definitions the CLI always attaches (exec, wait, request_user_input), in a
+// read-only sandbox. `temperature` and `max_tokens` are not controllable.
 
 // tool-bearing features switched off for every call
 const DISABLED_FEATURES = [
@@ -41,9 +43,6 @@ const CLEAN_INPUT = [
   "project_doc_max_bytes=0",
   'web_search="disabled"',
   "skills.bundled.enabled=false",
-  "include_skills_usage_instructions=false",
-  "include_plugin_usage_instructions=false",
-  "include_apps_usage_instructions=false",
   "include_apps_instructions=false",
   "include_permissions_instructions=false",
   "include_environment_context=false",
@@ -127,6 +126,15 @@ export function makeCodexProvider(options: {
     complete(req) {
       const scratch = join(tmpdir(), "arena-codex-cwd");
       mkdirSync(scratch, { recursive: true });
+      // the system prompt goes in as the model's base instructions, from a
+      // file outside the (empty) working directory
+      const promptDir = join(tmpdir(), "arena-codex-prompts");
+      mkdirSync(promptDir, { recursive: true });
+      const promptFile = join(
+        promptDir,
+        `${createHash("sha256").update(req.system).digest("hex").slice(0, 24)}.txt`,
+      );
+      if (!existsSync(promptFile)) writeFileSync(promptFile, req.system);
       const args = [
         "exec",
         "--json",
@@ -141,7 +149,7 @@ export function makeCodexProvider(options: {
         options.model,
         // TOML basic strings accept JSON string escapes
         "-c",
-        `developer_instructions=${JSON.stringify(req.system)}`,
+        `model_instructions_file=${JSON.stringify(promptFile)}`,
         ...CLEAN_INPUT.flatMap((pair) => ["-c", pair]),
         ...(options.effort !== undefined
           ? ["-c", `model_reasoning_effort=${JSON.stringify(options.effort)}`]

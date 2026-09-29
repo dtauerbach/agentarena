@@ -575,9 +575,10 @@ export function LaunchForm({
           )}
           {chosenProviders.has("codex") && (
             <p className="text-xs text-muted-foreground">
-              Purity note: Codex keeps its own base system prompt under the
-              game&apos;s instructions, and temperature and max tokens are not
-              controllable. See docs/CODEX.md.
+              Purity note: the game&apos;s prompt replaces Codex&apos;s own, but
+              Codex always attaches a few built-in tool definitions the agents
+              can see, and temperature and max tokens are not controllable. See
+              docs/CODEX.md.
             </p>
           )}
           {!hasKey && provider === "claude_code" && (
