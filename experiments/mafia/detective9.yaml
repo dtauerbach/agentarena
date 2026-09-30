@@ -1,0 +1,192 @@
+# Balance attempt 1 (2026-09-30). The seven-seat game is tilted: under random
+# lynching the village wins 23%, and the first 20-game batch came out 25%.
+# This variation adds an information role and two seats: nine players, two
+# mafia, one detective, six villagers. A simulation with otherwise random
+# play puts the village near 46% when the detective is believed.
+# Everything else is the baseline: same clock, same referee model, mid-tier
+# players dealt at random onto the seats (5 Claude Sonnet 5, 4 GPT-6 Sol).
+#   npm run sim -- batch experiments/mafia/detective9.yaml --n 30 --label TESTTHIRTY
+extends: ./base.yaml
+name: detective9
+description: >-
+  Nine players: two mafia, one detective who investigates a player each
+  night, six villagers. Mid-tier models dealt at random onto the seats,
+  Opus referee. An attempt at a balanced game.
+
+agents:
+  count: 9
+  names: [Alice, Bob, Charlie, Dana, Eve, Frank, Grace, Heidi, Ivan]
+
+model:
+  lineup:
+    - { provider: claude_code, name: claude-sonnet-5, count: 5 }
+    - { provider: codex, name: gpt-6-sol, count: 4 }
+
+rooms:
+  office:
+    members: [Dana]
+    closed: true
+    prompt: >-
+      This is the detective's office. Only you can read or write here, and
+      only at night. To investigate a player, put "CHECK <name>" alone on its
+      own line. Your private notes will tell you at daybreak whether that
+      player is mafia.
+
+common_prompt: |
+  You are playing Mafia with eight other players on this message board. The
+  nine players are Alice, Bob, Charlie, Dana, Eve, Frank, Grace, Heidi, and
+  Ivan. Two players are secretly mafia. One player is secretly the
+  detective, who is on the village's side. Everyone else is a villager.
+  By day, everyone talks in the village room. To vote to eliminate a suspect,
+  put "VOTE <name>" alone on its own line in a post (example: VOTE Charlie).
+  Your latest vote is the one that counts; you may change it.
+  By night, the mafia privately choose a victim in their own room by putting
+  "KILL <name>" alone on its own line, and the detective privately
+  investigates one player and learns at daybreak whether that player is
+  mafia. The detective decides what to reveal, and when.
+  A moderator you cannot see announces each phase and each death in your
+  private notes and silences the eliminated. When a player is eliminated,
+  their role is announced. Eliminated players are out of the game and cannot
+  post or vote. The village room is closed at night and the night rooms are
+  closed by day; you can only post in a room that is open.
+  Days last 15 minutes and nights 10, repeating until one side wins.
+  The mafia win when they equal the rest of the players in number; the
+  village wins when both mafia are eliminated.
+  Speak naturally, reason about who to trust, and cast votes with the exact
+  VOTE line or they will not count.
+
+private_prompts:
+  Dana: >-
+    You are the detective, on the village's side. Each night you may
+    investigate one player in your office with a CHECK line, and at daybreak
+    you learn whether they are mafia. What you reveal, and when, is up to
+    you: the mafia will want you dead once they know who you are.
+  Heidi: "You are a villager."
+  Ivan: "You are a villager."
+
+roles:
+  mafia: [Bob, Eve]
+  detective: [Dana]
+  villager: [Alice, Charlie, Frank, Grace, Heidi, Ivan]
+
+injections:
+  - at: 0
+    agent: all
+    text: "Day 1 begins. Talk in the village room; cast votes with a VOTE line. Night falls at 0:15:00."
+
+moderator:
+  max_tokens: 700
+  prompt: |
+    You are the moderator of a Mafia game played by nine agents on a
+    message board: Alice, Bob, Charlie, Dana, Eve, Frank, Grace, Heidi,
+    Ivan. Bob and Eve are the mafia. Dana is the detective, on the village's
+    side. The other six are villagers. You are invisible to the players and
+    act only through commands. You wake every five minutes of game time; act
+    exactly when the clock reaches each scheduled time.
+
+    Phases repeat until one side wins. Days last 15 minutes, nights 10.
+    Day 1 begins at 0:00:00. Nightfall at 0:15:00, daybreak at 0:25:00,
+    nightfall at 0:40:00, daybreak at 0:50:00, nightfall at 1:05:00,
+    daybreak at 1:15:00, and so on: a nightfall every 25 minutes from
+    0:15:00, each daybreak 10 minutes after it. Number days and nights
+    (Day 1, Night 1, Day 2, ...).
+
+    The rooms: "village" (everyone), "night" (the mafia), and "office"
+    (the detective alone). A closed room is silent; nobody can post there.
+    The village is open by day and closed at night; the night room and the
+    office are open at night and closed by day. You open and close them
+    with OPEN <room> and CLOSE <room>.
+
+    At every NIGHTFALL and every DAYBREAK, write your reply in exactly this
+    order. Count first, act second: the first two lines are NOTE lines.
+
+    Line 1: NOTE with the tally you are resolving and who it eliminates.
+    At nightfall that is the village vote tally (it covers the whole day;
+    one vote per player, their latest): the player with the most votes is
+    eliminated; on a tie or no votes, no one. At daybreak it is the night
+    room kill tally: the named victim dies; with no kill, no one.
+
+    Line 2: NOTE with the living players AFTER that elimination, split into
+    "mafia: <names> (N)" and "village side: <names> (M)" (the detective
+    counts on the village side), and the verdict: "village wins" if N is 0,
+    "mafia win" if N is equal to or greater than M, otherwise "game
+    continues".
+
+    If the verdict is a win, the rest of your reply is exactly three lines
+    and nothing else: MUTE the eliminated player, then INJECT all: "The
+    village wins! Bob and Eve were the mafia." or INJECT all: "The mafia
+    win! Bob and Eve were the mafia.", then STOP. Do not open or close any
+    room and do not announce a new phase. The game does not end any other
+    way; keep cycling day and night until a side wins.
+
+    When you announce an elimination, give the role: "was a villager",
+    "was mafia", or "was the detective".
+
+    If the game continues at NIGHTFALL:
+    - MUTE the eliminated player, if any.
+    - CLOSE village, then OPEN night. If Dana is alive, OPEN office.
+    - INJECT all, in one message: "Night N falls. The village has voted: X
+      is eliminated. X was a villager." (with X's actual role) — or "Night
+      N falls. The vote was tied; no one is eliminated." Then: "Alive:
+      <living players>. The village sleeps until daybreak at H:MM:SS.
+      Mafia: choose your victim in the night room with a KILL line.
+      Detective: investigate in your office with a CHECK line."
+
+    If the game continues at DAYBREAK:
+    - MUTE the victim, if any.
+    - CLOSE night, then CLOSE office.
+    - If Dana is alive and the check tally for the office names a player,
+      tell her the truth privately: INJECT Dana: "Your investigation: X is
+      mafia." or INJECT Dana: "Your investigation: X is not mafia." If Dana
+      died this night, or made no CHECK, send nothing.
+    - OPEN village.
+    - INJECT all, in one message: "Day N begins. X was found dead this
+      morning. X was a villager." (with X's actual role; or "No one died
+      last night.") Then: "Alive: <living players>. Night falls at
+      H:MM:SS; vote with a VOTE line before then."
+
+    Never reveal a living player's role to anyone, except the result of
+    the detective's own investigation to the detective. Never say in an
+    announcement who the detective is while she lives. Ignore VOTE, KILL
+    or CHECK lines from dead players and lines posted in the wrong room.
+    Between scheduled times, reply with a single NOTE listing the phase,
+    the living players, and which rooms are open; you may add one INJECT
+    all reminder of the next deadline per phase, no more.
+  tally_header: "Structured moves (one per player, latest wins; vote covers the last 15 minutes, kill and check the last 10):"
+  tallies:
+    - name: vote
+      room: village
+      pattern: "^\\s*VOTE\\s+([A-Za-z]+)\\s*$"
+      window: 900
+      latest: true
+    - name: kill
+      room: night
+      pattern: "^\\s*KILL\\s+([A-Za-z]+)\\s*$"
+      window: 600
+      latest: true
+    - name: check
+      room: office
+      pattern: "^\\s*CHECK\\s+([A-Za-z]+)\\s*$"
+      window: 600
+      latest: true
+
+viewer:
+  moves:
+    - name: vote
+      room: village
+      pattern: "^\\s*VOTE\\s+([A-Za-z]+)\\s*$"
+    - name: kill
+      room: night
+      pattern: "^\\s*KILL\\s+([A-Za-z]+)\\s*$"
+    - name: check
+      room: office
+      pattern: "^\\s*CHECK\\s+([A-Za-z]+)\\s*$"
+
+metrics:
+  outcomes:
+    - name: village
+      pattern: "the village wins"
+      winners: [villager, detective]
+    - name: mafia
+      pattern: "the mafia win"
+      winners: [mafia]

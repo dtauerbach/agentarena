@@ -301,9 +301,53 @@ export function buildCorpusBlocks(
   return { blocks, excerpted };
 }
 
-function stripFence(text: string): string {
-  const match = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(text.trim());
-  return match ? (match[1] as string) : text.trim();
+// every balanced top-level {...} in the text, in order; braces inside JSON
+// strings do not count
+function jsonObjects(text: string): string[] {
+  const found: string[] = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"' && depth > 0) inString = true;
+    else if (ch === "{") {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) found.push(text.slice(start, i + 1));
+    }
+  }
+  return found;
+}
+
+// An observer may wrap its report in a code fence, preface it, or start
+// over mid-reply ("Wait — I must output the full shape"). The report is the
+// LAST object in the reply that fits the shape; the raw reply is kept
+// untouched either way.
+export function parseReport(
+  raw: string,
+): { report: ObserverReport } | { error: string } {
+  const candidates = jsonObjects(raw).reverse();
+  let error = "no JSON object in the reply";
+  for (const candidate of candidates) {
+    try {
+      const parsed = reportSchema.safeParse(JSON.parse(candidate));
+      if (parsed.success) return { report: parsed.data };
+      error = parsed.error.issues[0]?.message ?? "schema mismatch";
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { error };
 }
 
 export type ObserverResult = {
@@ -500,16 +544,29 @@ export async function runObserver(
     usage: response.usage,
     raw: response.text,
   };
-  try {
-    const parsed = reportSchema.safeParse(
-      JSON.parse(stripFence(response.text)),
-    );
-    if (parsed.success) result.report = parsed.data;
-    else
-      result.parse_error = parsed.error.issues[0]?.message ?? "schema mismatch";
-  } catch (error) {
-    result.parse_error = error instanceof Error ? error.message : String(error);
-  }
+  const parsed = parseReport(response.text);
+  if ("report" in parsed) result.report = parsed.report;
+  else result.parse_error = parsed.error;
   writeFileSync(join(outDir, "observer.json"), JSON.stringify(result, null, 2));
+  return result;
+}
+
+// read a stored reply again with the current parser; no model call
+export function reparseObserver(outDir: string): ObserverResult | null {
+  const path = join(outDir, "observer.json");
+  if (!existsSync(path)) return null;
+  const {
+    report: _report,
+    parse_error: _error,
+    ...stored
+  } = JSON.parse(readFileSync(path, "utf8")) as ObserverResult;
+  const parsed = parseReport(stored.raw);
+  const result: ObserverResult = {
+    ...stored,
+    ...("report" in parsed
+      ? { report: parsed.report }
+      : { parse_error: parsed.error }),
+  };
+  writeFileSync(path, JSON.stringify(result, null, 2));
   return result;
 }

@@ -7,6 +7,7 @@ import { analyzeBatch, listBatchRunDirs } from "./metrics/batch";
 import {
   buildCorpusBlocks,
   loadObserver,
+  parseReport,
   renderRunDigest,
   runObserver,
 } from "./observe";
@@ -167,5 +168,31 @@ describe("two-stage observer for large batches", () => {
       },
     );
     expect(second.notes).toMatchObject({ written: 0, reused: 2, failed: 0 });
+  });
+});
+
+describe("report parsing", () => {
+  const report = (summary: string) =>
+    JSON.stringify({
+      summary,
+      trends: ["a {brace} in a string"],
+      notable_runs: [{ run: "r1", score: 5, why: "because" }],
+    });
+
+  it("takes the last object that fits the shape when the model starts over", () => {
+    const raw = `{"summary": "partial"}\n\nWait — I must output the full required shape.\n\n${report("full")}`;
+    const parsed = parseReport(raw);
+    expect("report" in parsed && parsed.report.summary).toBe("full");
+  });
+
+  it("reads through a code fence and a preface; reports why when nothing fits", () => {
+    const fenced = parseReport(
+      `Here it is:\n\`\`\`json\n${report("fenced")}\n\`\`\``,
+    );
+    expect("report" in fenced && fenced.report.summary).toBe("fenced");
+    expect(parseReport("no json here")).toEqual({
+      error: "no JSON object in the reply",
+    });
+    expect("error" in parseReport('{"summary": 3}')).toBe(true);
   });
 });
