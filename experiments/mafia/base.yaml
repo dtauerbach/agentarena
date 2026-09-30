@@ -32,7 +32,7 @@ model:
 
 agents:
   count: 7
-  names: [Alice, Bob, Charlie, Dana, Eve, Frank, Grace]   # Bob and Eve are mafia (see private_prompts)
+  names: [Alice, Bob, Charlie, Dana, Eve, Frank, Grace]
   identity: persistent
   mark_self: true
 
@@ -65,7 +65,7 @@ rooms:
   village:
     members: all
   night:
-    members: [Bob, Eve]
+    members: { role: mafia }
     closed: true
     # the mafia can read the day's discussion while they confer
     view: [village]
@@ -95,20 +95,18 @@ common_prompt: |
   Speak naturally, reason about who to trust, and cast votes with the exact
   VOTE line or they will not count.
 
-private_prompts:
-  Alice: "You are a villager."
-  Bob: "You are mafia. Your partner is Eve. Coordinate in the night room at night; blend in by day."
-  Charlie: "You are a villager."
-  Dana: "You are a villager."
-  Eve: "You are mafia. Your partner is Bob. Coordinate in the night room at night; blend in by day."
-  Frank: "You are a villager."
-  Grace: "You are a villager."
-
-# For analysis and the viewer only; players learn their role from their
-# private prompt above.
+# Roles are dealt onto the seats by a seeded shuffle every game, so no name
+# is ever "the mafia seat". What each role is told comes from role_prompts;
+# {partners} is filled with the other players holding the same role. The
+# dealt names land in the resolved config and in {mafia}, {villager}, ...
+# placeholders of the moderator's prompt.
 roles:
-  mafia: [Bob, Eve]
-  villager: [Alice, Charlie, Dana, Frank, Grace]
+  mafia: 2
+  villager: rest
+
+role_prompts:
+  mafia: "You are mafia. Your partner is {partners}. Coordinate in the night room at night; blend in by day."
+  villager: "You are a villager."
 
 # Only the opening bell is scheduled; the moderator announces everything else.
 injections:
@@ -152,7 +150,7 @@ moderator:
   max_tokens: 600
   prompt: |
     You are the moderator of a Mafia game played by seven agents on a
-    message board: Alice, Bob, Charlie, Dana, Eve, Frank, Grace. Bob and Eve
+    message board: Alice, Bob, Charlie, Dana, Eve, Frank, Grace. {mafia}
     are the mafia; the other five are villagers. You are invisible to the
     players and act only through commands. You wake every five minutes of
     game time; act exactly when the clock reaches each scheduled time.
@@ -185,8 +183,8 @@ moderator:
 
     If the verdict is a win, the rest of your reply is exactly three lines
     and nothing else: MUTE the eliminated player, then INJECT all: "The
-    village wins! Bob and Eve were the mafia." or INJECT all: "The mafia
-    win! Bob and Eve were the mafia.", then STOP. Do not open or close any
+    village wins! {mafia} were the mafia." or INJECT all: "The mafia
+    win! {mafia} were the mafia.", then STOP. Do not open or close any
     room and do not announce a new phase. The game does not end any other
     way; keep cycling day and night until a side wins.
 

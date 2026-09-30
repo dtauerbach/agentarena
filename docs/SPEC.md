@@ -306,11 +306,13 @@ output:
 tools:
   web: false                    # read-only web search/fetch for every agent; breaks the closed world (see §10)
 common_prompt: ...              # inherited from base
-private_prompts: {}
-roles: {}                       # role -> [names]; for analysis and the viewer only
+private_prompts: {}             # explicit per-name prompts; win over role_prompts
+roles: {}                       # role -> [names] | count | "rest": counted roles are dealt by a
+                                # seeded shuffle each game; the deal lands in the resolved config
+role_prompts: {}                # role -> private prompt template; {name}, {partners}
 injections: []                  # {at, agent: name | [names] | all, text}
 moderator:                      # optional config-driven referee (see §11a)
-  prompt: ...                   # its system prompt; all its templates are YAML
+  prompt: ...                   # its system prompt; {role-name} placeholders name the dealt players
   instruction: ...              # command-protocol description (INJECT/MUTE/UNMUTE/OPEN/CLOSE/JOIN/LEAVE/NOTE/STOP)
   line: "#{id} {clock} {name}: {message}"   # omniscient board line
   room_header: ... / log_header: ... / log_line: ... / log_empty: ...
@@ -322,7 +324,7 @@ moderator:                      # optional config-driven referee (see §11a)
                                 # since its last wake (or the last `window` seconds);
                                 # `latest: true` = one move per player, latest wins
 rooms:                          # default: one room holding everyone
-  main: { members: all }        # members: all | [names]; optional prompt: "..."; closed: true
+  main: { members: all }        # members: all | [names] | { role: mafia }; optional prompt; closed: true
                                 # starts the room closed (nobody wakes) until OPEN
 render: {...}                   # inherited from base
 cost:

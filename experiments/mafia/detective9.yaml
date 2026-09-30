@@ -24,7 +24,7 @@ model:
 
 rooms:
   office:
-    members: [Dana]
+    members: { role: detective }
     closed: true
     # the detective can reread the day while choosing whom to investigate
     view: [village]
@@ -59,19 +59,17 @@ common_prompt: |
   Speak naturally, reason about who to trust, and cast votes with the exact
   VOTE line or they will not count.
 
-private_prompts:
-  Dana: >-
+roles:
+  mafia: 2
+  detective: 1
+  villager: rest
+
+role_prompts:
+  detective: >-
     You are the detective, on the village's side. Each night you may
     investigate one player in your office with a CHECK line, and at daybreak
     you learn whether they are mafia. What you reveal, and when, is up to
     you: the mafia will want you dead once they know who you are.
-  Heidi: "You are a villager."
-  Ivan: "You are a villager."
-
-roles:
-  mafia: [Bob, Eve]
-  detective: [Dana]
-  villager: [Alice, Charlie, Frank, Grace, Heidi, Ivan]
 
 injections:
   - at: 0
@@ -83,8 +81,8 @@ moderator:
   prompt: |
     You are the moderator of a Mafia game played by nine agents on a
     message board: Alice, Bob, Charlie, Dana, Eve, Frank, Grace, Heidi,
-    Ivan. Bob and Eve are the mafia. Dana is the detective, on the village's
-    side. The other six are villagers. You are invisible to the players and
+    Ivan. {mafia} are the mafia. {detective} is the detective, on the
+    village's side. The other six are villagers. You are invisible to the players and
     act only through commands. You wake every five minutes of game time; act
     exactly when the clock reaches each scheduled time.
 
@@ -118,8 +116,8 @@ moderator:
 
     If the verdict is a win, the rest of your reply is exactly three lines
     and nothing else: MUTE the eliminated player, then INJECT all: "The
-    village wins! Bob and Eve were the mafia." or INJECT all: "The mafia
-    win! Bob and Eve were the mafia.", then STOP. Do not open or close any
+    village wins! {mafia} were the mafia." or INJECT all: "The mafia
+    win! {mafia} were the mafia.", then STOP. Do not open or close any
     room and do not announce a new phase. The game does not end any other
     way; keep cycling day and night until a side wins.
 
@@ -128,7 +126,7 @@ moderator:
 
     If the game continues at NIGHTFALL:
     - MUTE the eliminated player, if any.
-    - CLOSE village, then OPEN night. If Dana is alive, OPEN office.
+    - CLOSE village, then OPEN night. If {detective} is alive, OPEN office.
     - INJECT all, in one message: "Night N falls. The village has voted: X
       is eliminated. X was a villager." (with X's actual role) — or "Night
       N falls. The vote was tied; no one is eliminated." Then: "Alive:
@@ -139,10 +137,11 @@ moderator:
     If the game continues at DAYBREAK:
     - MUTE the victim, if any.
     - CLOSE night, then CLOSE office.
-    - If Dana is alive and the check tally for the office names a player,
-      tell her the truth privately: INJECT Dana: "Your investigation: X is
-      mafia." or INJECT Dana: "Your investigation: X is not mafia." If Dana
-      died this night, or made no CHECK, send nothing.
+    - If {detective} is alive and the check tally for the office names a
+      player, tell them the truth privately: INJECT {detective}: "Your
+      investigation: X is mafia." or INJECT {detective}: "Your investigation:
+      X is not mafia." If {detective} died this night, or made no CHECK,
+      send nothing.
     - OPEN village.
     - INJECT all, in one message: "Day N begins. X was found dead this
       morning. X was a villager." (with X's actual role; or "No one died

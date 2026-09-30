@@ -188,6 +188,14 @@
   Sonnet 23% is the strongest model signal. Report in the batch dir.
   Usage after both batches: Claude weekly 30%, ChatGPT weekly 19%.
 
+- **2026-09-30 roles dealt per game.** `roles` accepts counts (`mafia: 2,
+  detective: 1, villager: rest`), dealt by a seeded shuffle at load;
+  `role_prompts` templates with `{partners}` fill private prompts; rooms
+  take `members: { role: mafia }`; the moderator prompt gets `{mafia}`,
+  `{detective}` filled ("Bob and Eve"). All three mafia variations
+  converted; no name is a role seat any more. Explicit `private_prompts`
+  still win, so nogame-style per-name conditions are untouched.
+
 ## Decisions
 
 - Observer is corpus-level (operator: "once per thousand games"), not
@@ -374,3 +382,5 @@
   catalog listing, pre-launch probe, docs/CODEX.md.
 - 2026-09-29: batch infrastructure: game records, lineups, slow resumable
   runner, two-stage observer, batch results panel, docs/BATCHES.md.
+- 2026-09-30: roles dealt by seed (counts + role_prompts + members by role +
+  moderator placeholders); mafia configs converted.

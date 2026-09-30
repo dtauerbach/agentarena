@@ -293,7 +293,9 @@ test("mafia: per-player model pickers, two-room game view, move badges", async (
   await page.goto(`/runs/${runId}`);
   await expect(page.locator("section[data-room=village]")).toBeVisible();
   await expect(page.locator("section[data-room=night]")).toBeVisible();
-  await expect(page.getByText(/only Bob, Eve can read this/)).toBeVisible();
+  await expect(
+    page.getByText(/private · only \w+, \w+ can read this/),
+  ).toBeVisible();
   // a mock game at max is over before the page opens; the replay needs max too
   const replayMax = page.locator("button:has-text('max')");
   if (await replayMax.isEnabled()) await replayMax.click();

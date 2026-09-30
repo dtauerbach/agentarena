@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { runBatch } from "./batch";
+import { loadConfig } from "./config";
 import { analyzeBatch, listBatchRunDirs } from "./metrics/batch";
 import {
   buildCorpusBlocks,
@@ -122,8 +123,13 @@ describe("two-stage observer for large batches", () => {
   it("the digest carries roster, result, room phases and private reasoning", () => {
     const digest = renderRunDigest(runDirs[0] as string, mockRubric, false);
     expect(digest).toContain("--- roster ---");
-    expect(digest).toContain("Bob: mafia, mock");
-    expect(digest).toContain("Alice: villager, mock");
+    // roles are dealt per game; the roster names whoever drew mafia
+    const config = loadConfig("experiments/mafia/classic.yaml", {
+      provider: "mock",
+      seed: 1,
+    });
+    expect(digest).toContain(`${config.roles.mafia?.[0]}: mafia, mock`);
+    expect(digest).toContain(`${config.roles.villager?.[0]}: villager, mock`);
     expect(digest).toContain("--- result: none at");
     // the mock writes a thought before the POST: marker
     expect(digest).toContain("thinks, privately] (mock thinking)");

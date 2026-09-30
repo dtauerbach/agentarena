@@ -14,7 +14,7 @@ rooms:
   village:
     members: all
   night:
-    members: [Bob, Eve]
+    members: { role: mafia }
     closed: false
     prompt: >-
       This is the night room. Only the mafia can read or write here. The

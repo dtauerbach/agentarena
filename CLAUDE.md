@@ -151,6 +151,9 @@ Keep this list current. `npm run check` must always pass.
 - 2026-09-28: the explicit confirm checkbox is only for runs that spend API
   credits (operator request: the fear is a $1K API click, not subscription
   usage). Estimate still shown for every live run.
+- 2026-09-30: roles are dealt per game (`roles: {mafia: 2, ...}` +
+  `role_prompts`), so no player name is ever a role seat; a variation may
+  still pin roles to names with a list.
 - 2026-09-29: batches run detached from the web app (tmux window `batch`),
   paced and resumable; the directory is the state. Outcome is read from the
   referee's announcement by configured patterns, never decided by the harness.

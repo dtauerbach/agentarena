@@ -77,11 +77,11 @@ describe("config loading", () => {
   it("a null in a child config removes the parent's block", () => {
     const manual = loadConfig("experiments/mafia/manual.yaml");
     expect(manual.moderator).toBeUndefined();
-    expect(manual.rooms.night?.members).toEqual(["Bob", "Eve"]);
+    expect(manual.rooms.night?.members).toEqual(manual.roles.mafia);
     const classic = loadConfig("experiments/mafia/classic.yaml");
     expect(classic.moderator?.tallies.map((t) => t.window)).toEqual([900, 600]);
     // seated but closed: the referee opens the night room at nightfall
-    expect(classic.rooms.night?.members).toEqual(["Bob", "Eve"]);
+    expect(classic.rooms.night?.members).toEqual(classic.roles.mafia);
     expect(classic.rooms.night?.closed).toBe(true);
     expect(manual.rooms.night?.closed).toBe(false);
   });
@@ -150,11 +150,57 @@ describe("config loading", () => {
 
   it("roles and outcome patterns are validated against the cast", () => {
     const mafia = loadConfig("experiments/mafia/classic.yaml");
-    expect(mafia.roles.mafia).toEqual(["Bob", "Eve"]);
+    expect(mafia.roles.mafia).toHaveLength(2);
+    expect(mafia.roles.villager).toHaveLength(5);
     expect(mafia.metrics.outcomes.map((o) => o.name)).toEqual([
       "village",
       "mafia",
     ]);
+  });
+
+  it("counted roles are dealt by seed; prompts, rooms and the referee follow the deal", () => {
+    const deal = (seed: number) =>
+      loadConfig("experiments/mafia/detective9.yaml", { seed });
+    const a = deal(1);
+    const b = deal(1);
+    expect(a.roles).toEqual(b.roles);
+    expect(a.roles.mafia).toHaveLength(2);
+    expect(a.roles.detective).toHaveLength(1);
+    expect(a.roles.villager).toHaveLength(6);
+    const deals = new Set(
+      [1, 2, 3, 4, 5, 6].map((seed) => deal(seed).roles.mafia?.join(",")),
+    );
+    expect(deals.size).toBeGreaterThan(1);
+    const [m1, m2] = a.roles.mafia as [string, string];
+    const detective = a.roles.detective?.[0] as string;
+    expect(a.rooms.night?.members).toEqual([m1, m2]);
+    expect(a.rooms.office?.members).toEqual([detective]);
+    expect(a.private_prompts[m1]).toContain(`Your partner is ${m2}`);
+    expect(a.private_prompts[m2]).toContain(`Your partner is ${m1}`);
+    expect(a.private_prompts[detective]).toContain("You are the detective");
+    expect(a.private_prompts[a.roles.villager?.[0] as string]).toBe(
+      "You are a villager.",
+    );
+    expect(a.moderator?.prompt).toContain(`${m1} and ${m2} are the mafia`);
+    expect(a.moderator?.prompt).toContain(`${detective} is the detective`);
+    expect(a.moderator?.prompt).toContain(`INJECT ${detective}:`);
+    expect(a.moderator?.prompt).not.toContain("{mafia}");
+    // an explicit private prompt still wins over the role template
+    const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
+    const file = join(dir, "explicit.yaml");
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/mafia/classic.yaml")}\nname: e\nprivate_prompts:\n  Alice: "Alice is special."\n`,
+    );
+    expect(loadConfig(file, { seed: 1 }).private_prompts.Alice).toBe(
+      "Alice is special.",
+    );
+    // too many counted seats
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/mafia/classic.yaml")}\nname: e\nroles:\n  mafia: 8\n`,
+    );
+    expect(() => loadConfig(file)).toThrow(/8 counted seats for 7/);
   });
 
   it("viewer.moves must name a known room and a valid pattern", () => {

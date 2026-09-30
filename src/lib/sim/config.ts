@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { fill } from "./board";
 import { makeRng } from "./rng";
 
 // Prompt-text fields have no defaults here on purpose (hard rule 3): every
@@ -150,7 +151,12 @@ export const configSchema = z.strictObject({
     .record(
       z.string().regex(/^[\w-]+$/),
       z.strictObject({
-        members: z.union([z.literal("all"), z.array(z.string())]),
+        // all | [names] | { role } (the players dealt that role this game)
+        members: z.union([
+          z.literal("all"),
+          z.array(z.string()),
+          z.strictObject({ role: z.string().min(1) }),
+        ]),
         prompt: z.string().optional(),
         // a closed room keeps its members but nobody wakes in it until an
         // OPEN command (moderator or operator) — day/night phases
@@ -184,9 +190,24 @@ export const configSchema = z.strictObject({
     .prefault({}),
   common_prompt: z.string(),
   private_prompts: z.record(z.string(), z.string()).default({}),
-  // role name -> players, for analysis and the viewer only; what a player is
-  // told about its role is still its private prompt
-  roles: z.record(z.string(), z.array(z.string())).default({}),
+  // role name -> the players holding it: a fixed list of names, or a count
+  // dealt onto the seats by a seeded shuffle each game ("rest" takes every
+  // seat the counted roles leave). Dealt roles fill private_prompts from
+  // role_prompts, room memberships given as { role }, and {role-name}
+  // placeholders in the moderator's prompt, all at load time.
+  roles: z
+    .record(
+      z.string(),
+      z.union([
+        z.array(z.string()),
+        z.number().int().positive(),
+        z.literal("rest"),
+      ]),
+    )
+    .default({}),
+  // per-role private prompt templates; {name} is the player, {partners} the
+  // other players holding the same role (comma-separated, "nobody" if none)
+  role_prompts: z.record(z.string(), z.string()).default({}),
   injections: z
     .array(
       z.strictObject({
@@ -284,7 +305,17 @@ export const configSchema = z.strictObject({
     .prefault({}),
 });
 
-export type Config = z.infer<typeof configSchema> & { agentNames: string[] };
+type Parsed = z.infer<typeof configSchema>;
+
+// after loading, roles and room memberships are concrete names
+export type Config = Omit<Parsed, "roles" | "rooms"> & {
+  agentNames: string[];
+  roles: Record<string, string[]>;
+  rooms: Record<
+    string,
+    Omit<Parsed["rooms"][string], "members"> & { members: "all" | string[] }
+  >;
+};
 
 export type ModelChoice = {
   provider?: "anthropic" | "claude_code" | "codex" | "openai";
@@ -421,18 +452,66 @@ export function loadConfig(
     const message = issue ? issue.message : "invalid config";
     throw new Error(`config error at "${field}": ${message} (${filePath})`);
   }
-  const config = parsed.data;
+  const parsedConfig = parsed.data;
 
   const agentNames =
-    config.agents.names === "auto"
-      ? autoNames(config.agents.count)
-      : config.agents.names;
-  if (agentNames.length !== config.agents.count)
+    parsedConfig.agents.names === "auto"
+      ? autoNames(parsedConfig.agents.count)
+      : parsedConfig.agents.names;
+  if (agentNames.length !== parsedConfig.agents.count)
     throw new Error(
-      `agents.names: ${agentNames.length} names for agents.count ${config.agents.count}`,
+      `agents.names: ${agentNames.length} names for agents.count ${parsedConfig.agents.count}`,
     );
   if (new Set(agentNames).size !== agentNames.length)
     throw new Error("agents.names: names must be unique");
+
+  // deal the roles, then everything downstream sees names only
+  const roles = dealRoles(parsedConfig, agentNames);
+  const roleOf = (name: string): string | undefined =>
+    Object.entries(roles).find(([, members]) => members.includes(name))?.[0];
+  const rooms: Config["rooms"] = {};
+  for (const [roomName, room] of Object.entries(parsedConfig.rooms)) {
+    const members = room.members;
+    if (typeof members === "object" && !Array.isArray(members)) {
+      if (!(members.role in roles))
+        throw new Error(
+          `rooms.${roomName}.members: unknown role "${members.role}"`,
+        );
+      rooms[roomName] = { ...room, members: roles[members.role] ?? [] };
+    } else rooms[roomName] = { ...room, members };
+  }
+  const roleVars: Record<string, string> = Object.fromEntries(
+    Object.entries(roles).map(([role, members]) => [role, listNames(members)]),
+  );
+  const privatePrompts = { ...parsedConfig.private_prompts };
+  for (const name of agentNames) {
+    if (name in privatePrompts) continue; // an explicit prompt wins
+    const role = roleOf(name);
+    const template =
+      role === undefined ? undefined : parsedConfig.role_prompts[role];
+    if (role === undefined || template === undefined) continue;
+    const partners = (roles[role] ?? []).filter((other) => other !== name);
+    privatePrompts[name] = fill(template, {
+      name,
+      role,
+      partners: listNames(partners),
+    });
+  }
+  const config: Config = {
+    ...parsedConfig,
+    agentNames,
+    roles,
+    rooms,
+    private_prompts: privatePrompts,
+    ...(parsedConfig.moderator
+      ? {
+          moderator: {
+            ...parsedConfig.moderator,
+            prompt: fill(parsedConfig.moderator.prompt, roleVars),
+          },
+        }
+      : {}),
+  };
   for (const name of Object.keys(config.private_prompts))
     if (!agentNames.includes(name))
       throw new Error(`private_prompts: unknown agent "${name}"`);
@@ -523,6 +602,9 @@ export function loadConfig(
     for (const member of members)
       if (!agentNames.includes(member))
         throw new Error(`roles.${role}: unknown agent "${member}"`);
+  for (const role of Object.keys(config.role_prompts))
+    if (!(role in config.roles))
+      throw new Error(`role_prompts: unknown role "${role}"`);
   for (const outcome of config.metrics.outcomes) {
     try {
       new RegExp(outcome.pattern, "i");
@@ -557,5 +639,55 @@ export function loadConfig(
       `model.name: required for provider "${config.model.provider}"`,
     );
 
-  return { ...config, agentNames };
+  return config;
+}
+
+// "Bob", "Bob and Eve", "Alice, Bob and Charlie"
+function listNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "nobody";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+// Counted roles are dealt by a seeded shuffle of the seats; listed roles
+// keep their names; "rest" takes whatever the counted roles leave. A name
+// may hold one role.
+function dealRoles(
+  parsed: Parsed,
+  agentNames: string[],
+): Record<string, string[]> {
+  const fixed: Record<string, string[]> = {};
+  const counted: [string, number][] = [];
+  let rest: string | undefined;
+  for (const [role, spec] of Object.entries(parsed.roles)) {
+    if (Array.isArray(spec)) fixed[role] = spec;
+    else if (spec === "rest") {
+      if (rest !== undefined)
+        throw new Error(
+          `roles: only one role may be "rest" (${rest}, ${role})`,
+        );
+      rest = role;
+    } else counted.push([role, spec]);
+  }
+  const taken = new Set(Object.values(fixed).flat());
+  const pool = agentNames.filter((name) => !taken.has(name));
+  const needed = counted.reduce((n, [, count]) => n + count, 0);
+  if (needed > pool.length)
+    throw new Error(
+      `roles: ${needed} counted seats for ${pool.length} available players`,
+    );
+  const dealt =
+    counted.length > 0 || rest !== undefined
+      ? makeRng(parsed.seed).fork("roles").shuffle(pool)
+      : pool;
+  const roles: Record<string, string[]> = { ...fixed };
+  let at = 0;
+  for (const [role, count] of counted) {
+    roles[role] = dealt.slice(at, at + count).sort();
+    at += count;
+  }
+  if (rest !== undefined) roles[rest] = dealt.slice(at).sort();
+  const all = Object.values(roles).flat();
+  if (new Set(all).size !== all.length)
+    throw new Error("roles: a player may hold only one role");
+  return roles;
 }
