@@ -259,8 +259,9 @@ test("mafia: per-player model pickers, two-room game view, move badges", async (
   await expect(page.locator("#player-Bob")).toHaveCount(0);
   await page.selectOption("#launch-provider", "claude_code");
   await expect(page.locator("#player-Bob")).toBeVisible();
-  // Claude subscription, ChatGPT subscription (codex), Anthropic API
-  await expect(page.locator("#player-Bob optgroup")).toHaveCount(3, {
+  // Claude subscription, ChatGPT subscription (codex), Anthropic API,
+  // OpenAI API (GPT models have pricing rows now)
+  await expect(page.locator("#player-Bob optgroup")).toHaveCount(4, {
     timeout: 10_000,
   });
   await expect(page.locator("#player-Bob optgroup").nth(1)).toHaveAttribute(
