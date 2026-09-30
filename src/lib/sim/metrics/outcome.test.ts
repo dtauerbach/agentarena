@@ -32,7 +32,7 @@ function writeRun(
       roles: { mafia: ["Bob"], villager: ["Alice", "Charlie", "Dana"] },
       private_prompts: {},
       injections: [],
-      rooms: { village: { members: "all", closed: false } },
+      rooms: { village: { members: "all", closed: false, view: [] } },
       model: {
         ...base.model,
         provider: "claude_code",

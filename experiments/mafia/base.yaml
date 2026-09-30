@@ -67,9 +67,14 @@ rooms:
   night:
     members: [Bob, Eve]
     closed: true
+    # the mafia can read the day's discussion while they confer
+    view: [village]
     prompt: >-
       This is the night room. Only the mafia can read or write here, and only
-      at night. The village room cannot see anything posted here.
+      at night. The village room cannot see anything posted here. The
+      village board is shown above for reference; it is read-only from here.
+      To choose the victim, your post (the text after POST:) must be exactly
+      "KILL <name>". Anything before POST: is private and does not count.
 
 common_prompt: |
   You are playing Mafia with six other players on this message board. The
@@ -121,6 +126,7 @@ render:
   injection_line: "({clock}) {text}"
   first_wake_line: "You are looking at this room for the first time."
   new_since_line: "Posts #{id} onward are new since you last checked."
+  view_header: "Room {room} (read-only from here):"
   nothing_new_line: "Nothing new since you last checked."
   turn_instruction: >-
     You have just checked this room. First think privately for as long as you

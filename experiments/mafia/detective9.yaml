@@ -26,11 +26,15 @@ rooms:
   office:
     members: [Dana]
     closed: true
+    # the detective can reread the day while choosing whom to investigate
+    view: [village]
     prompt: >-
       This is the detective's office. Only you can read or write here, and
-      only at night. To investigate a player, put "CHECK <name>" alone on its
-      own line. Your private notes will tell you at daybreak whether that
-      player is mafia.
+      only at night. The village board is shown above for reference; it is
+      read-only from here. To investigate a player, your post (the text after
+      POST:) must be exactly "CHECK <name>". Anything before POST: is private
+      and does not count; a CHECK written there is never seen. Your private
+      notes will tell you at daybreak whether that player is mafia.
 
 common_prompt: |
   You are playing Mafia with eight other players on this message board. The

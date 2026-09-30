@@ -86,10 +86,30 @@ export function instructionBlock(config: Config, instruction: string): string {
   return main;
 }
 
-export type RoomInfo = { name: string; prompt?: string };
+export type RoomInfo = {
+  name: string;
+  prompt?: string;
+  // boards of other rooms this room can read, in config order
+  views?: { name: string; posts: readonly BoardPost[] }[];
+};
+
+// the read-only boards of viewed rooms, each under its header
+export function renderViewBlocks(
+  config: Config,
+  agent: AgentState,
+  views: RoomInfo["views"],
+): string[] {
+  const header = config.render.view_header;
+  if (views === undefined || header === undefined) return [];
+  return views.map(
+    (view) =>
+      `${fill(header, { room: view.name })}\n${renderBoardBlocks(config, view.posts, agent.name).join("\n")}`,
+  );
+}
 
 // the user-message content blocks of a wake (or gate/revise) call, in SPEC §4
-// order; a room with a prompt gets it as the leading block (stable, cacheable)
+// order; a room with a prompt gets it as the leading block (stable, cacheable),
+// then any viewed boards, then the room's own board
 export function buildWakeBlocks(
   config: Config,
   agent: AgentState,
@@ -102,6 +122,7 @@ export function buildWakeBlocks(
     ...(room.prompt !== undefined
       ? [fill(room.prompt, { room: room.name })]
       : []),
+    ...renderViewBlocks(config, agent, room.views),
     ...renderBoardBlocks(config, posts, agent.name),
     renderPrivateBlock(config, agent, roomState, posts),
     instructionBlock(config, instruction),

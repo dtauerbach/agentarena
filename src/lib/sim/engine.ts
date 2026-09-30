@@ -240,11 +240,24 @@ export async function runEngine(
 
   const roomInfo = (name: string): RoomInfo => {
     const room = rooms.get(name);
+    const viewed = config.rooms[name]?.view ?? [];
     return {
       name,
       ...(room?.prompt !== undefined ? { prompt: room.prompt } : {}),
+      ...(viewed.length > 0
+        ? {
+            views: viewed.map((other) => ({
+              name: other,
+              posts: roomPosts.get(other) ?? [],
+            })),
+          }
+        : {}),
     };
   };
+  // viewed boards sit between the room prompt and the room's own board; they
+  // only change while the viewed room is open, so they count as stable prefix
+  const viewBlockCount = (name: string): number =>
+    config.rooms[name]?.view.length ?? 0;
   const roomState = (agent: AgentState, room: string): RoomAgentState => {
     let state = agent.rooms.get(room);
     if (!state) {
@@ -820,6 +833,7 @@ export async function runEngine(
         );
         const cacheable =
           (rooms.get(room)?.prompt !== undefined ? 1 : 0) +
+          viewBlockCount(room) +
           stableBoardBlockCount(config, posts);
         const result = await callProvider(
           agent.name,
@@ -961,6 +975,7 @@ export async function runEngine(
       const state = roomState(agent, room);
       const cacheable =
         (rooms.get(room)?.prompt !== undefined ? 1 : 0) +
+        viewBlockCount(room) +
         stableBoardBlockCount(config, posts);
       return {
         time,

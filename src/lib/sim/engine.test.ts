@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config";
 import { runEngine } from "./engine";
@@ -317,10 +320,11 @@ describe("G1-G3: broadcast injections, rooms, operator", () => {
       ...base(),
       activity: { ...base().activity, p: 0.5 },
       rooms: {
-        main: { members: "all" as const, closed: false },
+        main: { members: "all" as const, closed: false, view: [] },
         night: {
           members: ["B", "D"],
           closed: false,
+          view: [],
           prompt: "NIGHT-ROOM-MARKER: only you two see this.",
         },
       },
@@ -397,8 +401,8 @@ describe("G1-G3: broadcast injections, rooms, operator", () => {
     const config = {
       ...base(),
       rooms: {
-        main: { members: "all" as const, closed: false },
-        side: { members: ["A", "B"], closed: false },
+        main: { members: "all" as const, closed: false, view: [] },
+        side: { members: ["A", "B"], closed: false, view: [] },
       },
     };
     const collected = await run(
@@ -479,8 +483,8 @@ describe("room open/close", () => {
     const config = {
       ...base,
       rooms: {
-        main: { members: "all" as const, closed: false },
-        side: { members: ["A", "B"], closed: true },
+        main: { members: "all" as const, closed: false, view: [] },
+        side: { members: ["A", "B"], closed: true, view: [] },
       },
       moderator: {
         prompt: "ref",
@@ -553,6 +557,59 @@ describe("room open/close", () => {
     );
     const start = collected.events.find((e) => e.kind === "run_start");
     expect(start?.closed_rooms).toEqual(["side"]);
+  });
+});
+
+describe("room views", () => {
+  it("a wake in a viewing room reads the viewed board under its header, read-only", async () => {
+    const base = loadConfig("experiments/nogame/A_baseline.yaml", {
+      provider: "mock",
+      duration: 600,
+    });
+    const config = {
+      ...base,
+      render: { ...base.render, view_header: "== {room}, read only ==" },
+      rooms: {
+        main: { members: "all" as const, closed: false, view: [] },
+        side: { members: ["A", "B"], closed: false, view: ["main"] },
+      },
+    };
+    const collected: Collected = { posts: [], events: [], calls: [] };
+    await runEngine(config, makeMockProvider(config.seed), {
+      emit: (e) => collected.events.push(e),
+      post: (p) => collected.posts.push(p),
+      call: (c) => collected.calls.push(c),
+    });
+    const sideCalls = collected.calls.filter((c) => c.room === "side");
+    expect(sideCalls.length).toBeGreaterThan(0);
+    const late = sideCalls[sideCalls.length - 1] as (typeof sideCalls)[number];
+    const viewBlock = late.request.blocks.find((b) =>
+      b.startsWith("== main, read only =="),
+    );
+    expect(viewBlock).toBeDefined();
+    const mainPostsBefore = collected.posts.filter(
+      (p) => p.room === "main" && p.t_land <= late.t,
+    );
+    if (mainPostsBefore.length > 0)
+      expect(viewBlock).toContain(mainPostsBefore[0]?.message ?? "");
+    // main wakes do not see the side room
+    for (const call of collected.calls.filter((c) => c.room === "main"))
+      expect(call.request.blocks.join("\n")).not.toContain("read only");
+  });
+
+  it("a view must name another existing room and have a header template", () => {
+    const dir = mkdtempSync(join(tmpdir(), "arena-config-"));
+    const file = join(dir, "view.yaml");
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/nogame/A_baseline.yaml")}\nname: v\nrooms:\n  main: { members: all }\n  side: { members: [A], view: [nowhere] }\n`,
+    );
+    expect(() => loadConfig(file)).toThrow(/unknown room "nowhere"/);
+    writeFileSync(
+      file,
+      `extends: ${join(process.cwd(), "experiments/nogame/A_baseline.yaml")}\nname: v\nrooms:\n  main: { members: all }\n  side: { members: [A], view: [main] }\n`,
+    );
+    expect(() => loadConfig(file)).toThrow(/view_header is required/);
   });
 });
 

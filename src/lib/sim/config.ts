@@ -23,6 +23,8 @@ const renderSchema = z.strictObject({
   check_back_instruction: z.string(),
   gate_instruction: z.string(),
   revise_instruction: z.string(),
+  // header over a viewed room's board; required when any room has a view
+  view_header: z.string().optional(),
 });
 
 const activityPerAgentSchema = z.strictObject({
@@ -153,9 +155,12 @@ export const configSchema = z.strictObject({
         // a closed room keeps its members but nobody wakes in it until an
         // OPEN command (moderator or operator) — day/night phases
         closed: z.boolean().default(false),
+        // other rooms whose boards a wake here can read (read-only): a night
+        // room that remembers the day
+        view: z.array(z.string()).default([]),
       }),
     )
-    .default({ main: { members: "all", closed: false } }),
+    .default({ main: { members: "all", closed: false, view: [] } }),
   board: z
     .strictObject({
       visibility: z
@@ -454,6 +459,18 @@ export function loadConfig(
     )
       throw new Error(
         "moderator: tally_header and tally_line are required when tallies are set",
+      );
+  }
+  for (const [roomName, room] of Object.entries(config.rooms)) {
+    for (const viewed of room.view) {
+      if (!(viewed in config.rooms))
+        throw new Error(`rooms.${roomName}.view: unknown room "${viewed}"`);
+      if (viewed === roomName)
+        throw new Error(`rooms.${roomName}.view: a room cannot view itself`);
+    }
+    if (room.view.length > 0 && config.render.view_header === undefined)
+      throw new Error(
+        `rooms.${roomName}.view: render.view_header is required when a room views another`,
       );
   }
   for (const move of config.viewer.moves) {
