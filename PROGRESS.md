@@ -194,7 +194,11 @@
   take `members: { role: mafia }`; the moderator prompt gets `{mafia}`,
   `{detective}` filled ("Bob and Eve"). All three mafia variations
   converted; no name is a role seat any more. Explicit `private_prompts`
-  still win, so nogame-style per-name conditions are untouched.
+  still win, so nogame-style per-name conditions are untouched. Validated
+  live (`runs/batch-20260930-154151-role-check`): seed 202 dealt Bob+Grace
+  mafia and Heidi detective; the referee muted, opened the office for
+  Heidi, delivered her result privately, and announced "Bob and Grace were
+  the mafia". Village win at 1:05:00, no errors.
 
 ## Decisions
 
