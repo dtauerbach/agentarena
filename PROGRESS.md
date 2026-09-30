@@ -158,6 +158,20 @@
   missing a 2v2 win check for five minutes and a mafia private/public gap).
   UI launch + Stop verified in a browser against a live runner.
 
+- **2026-09-30 first real batch read (operator's 20 games,
+  `runs/batch-20260929-163030-testtwenty`).** Mafia 15, village 5: the
+  village wins at the rate random lynching would give (23%). Every Day 1
+  lynch hit a Sonnet seat (19/19); GPT-6 Sol cast the first vote in 20/20
+  games and both families vote almost only at Claude seats. Usage per game:
+  about 0.5 points of Claude's five-hour window, about 0.05 of Claude's
+  week, about 0.1 of ChatGPT's week. API list price about $1.46 per game
+  (now in `batch_summary.json` and on the batch page). Fixes: referee
+  counts before it acts (it had walked past 2v2 parity in 6 of 6 games);
+  Claude CLI output cap enforced as a hard cap (the CLI otherwise injects
+  its own "resume" message and returns only the tail, which is what broke
+  the observer's JSON); observer runs detached with a rubric picker;
+  pricing.yaml corrected (Sonnet 5 $2/$10) and GPT rows added.
+
 ## Decisions
 
 - Observer is corpus-level (operator: "once per thousand games"), not
