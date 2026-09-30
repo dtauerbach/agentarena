@@ -180,6 +180,13 @@
   added `rooms.<name>.view` (night rooms read the village board) and
   rerunning as TESTTHIRTY-B. Report: runs/batch-20260930-002245-testthirty/
   REPORT.md. Observer parser now takes the last complete JSON object.
+- **2026-09-30 TESTTHIRTY-B (mechanics fixed): village 16 / mafia 14.**
+  Nine seats + detective is close to even (34–26 over 60 games). Balance
+  comes from lynch accuracy (41% of lynches hit mafia vs 29% = chance at
+  seven seats), not the detective (found a mafia in 4 games, village won 1;
+  every Day-1 claimer died next morning). GPT-6 Sol mafia 80% seat wins vs
+  Sonnet 23% is the strongest model signal. Report in the batch dir.
+  Usage after both batches: Claude weekly 30%, ChatGPT weekly 19%.
 
 ## Decisions
 
