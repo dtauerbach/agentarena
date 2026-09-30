@@ -163,36 +163,43 @@ moderator:
     at night; the night room is open at night and closed by day. You open
     and close them with OPEN <room> and CLOSE <room>.
 
-    At each NIGHTFALL, in this order:
-    1. Read the village vote tally (it covers the whole day; one vote per
-       player, their latest). The player with the most votes is eliminated:
-       MUTE them. On a tie or no votes, no one is eliminated.
-    2. Check the winner (below). If the game is over, announce and STOP;
-       skip the rest.
-    3. CLOSE village, then OPEN night.
-    4. Announce with INJECT all, in one message: "Night N falls. The village
-       has voted: X is eliminated. X was a villager." (or "was mafia") — or
-       "Night N falls. The vote was tied; no one is eliminated." Then:
-       "Alive: <living players>. The village sleeps until daybreak at
-       H:MM:SS. Mafia: choose your victim in the night room with a KILL
-       line."
+    At every NIGHTFALL and every DAYBREAK, write your reply in exactly this
+    order. Count first, act second: the first two lines are NOTE lines.
 
-    At each DAYBREAK, in this order:
-    1. Read the night room kill tally. The named victim dies: MUTE them.
-       If there is no kill, no one dies.
-    2. Check the winner (below). If the game is over, announce and STOP;
-       skip the rest.
-    3. CLOSE night, then OPEN village.
-    4. Announce with INJECT all, in one message: "Day N begins. X was found
-       dead this morning. X was a villager." (or "was mafia"; or "No one
-       died last night.") Then: "Alive: <living players>. Night falls at
-       H:MM:SS; vote with a VOTE line before then."
+    Line 1: NOTE with the tally you are resolving and who it eliminates.
+    At nightfall that is the village vote tally (it covers the whole day;
+    one vote per player, their latest): the player with the most votes is
+    eliminated; on a tie or no votes, no one. At daybreak it is the night
+    room kill tally: the named victim dies; with no kill, no one.
 
-    Winner check, after every elimination: if both Bob and Eve are dead,
-    INJECT all "The village wins! Bob and Eve were the mafia." then STOP.
-    If living mafia equal or outnumber living villagers, INJECT all "The
-    mafia win! Bob and Eve were the mafia." then STOP. The game does not
-    end any other way; keep cycling day and night until a side wins.
+    Line 2: NOTE with the living players AFTER that elimination, split into
+    "mafia: <names> (N)" and "villagers: <names> (M)", and the verdict:
+    "village wins" if N is 0, "mafia win" if N is equal to or greater than
+    M, otherwise "game continues".
+
+    If the verdict is a win, the rest of your reply is exactly three lines
+    and nothing else: MUTE the eliminated player, then INJECT all: "The
+    village wins! Bob and Eve were the mafia." or INJECT all: "The mafia
+    win! Bob and Eve were the mafia.", then STOP. Do not open or close any
+    room and do not announce a new phase. The game does not end any other
+    way; keep cycling day and night until a side wins.
+
+    If the game continues at NIGHTFALL:
+    - MUTE the eliminated player, if any.
+    - CLOSE village, then OPEN night.
+    - INJECT all, in one message: "Night N falls. The village has voted: X
+      is eliminated. X was a villager." (or "was mafia") — or "Night N
+      falls. The vote was tied; no one is eliminated." Then: "Alive:
+      <living players>. The village sleeps until daybreak at H:MM:SS.
+      Mafia: choose your victim in the night room with a KILL line."
+
+    If the game continues at DAYBREAK:
+    - MUTE the victim, if any.
+    - CLOSE night, then OPEN village.
+    - INJECT all, in one message: "Day N begins. X was found dead this
+      morning. X was a villager." (or "was mafia"; or "No one died last
+      night.") Then: "Alive: <living players>. Night falls at H:MM:SS;
+      vote with a VOTE line before then."
 
     Never reveal a living player's role. Ignore VOTE or KILL lines from
     dead players and lines posted in the wrong room. Between scheduled
