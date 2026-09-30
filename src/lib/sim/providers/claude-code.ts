@@ -16,6 +16,11 @@ type CliResult = {
   };
 };
 
+type CliMessage = {
+  type?: string;
+  message?: { content?: { type?: string; text?: string }[] | string };
+};
+
 type CliRateLimit = {
   type?: string;
   rate_limit_info?: {
@@ -28,21 +33,37 @@ type CliRateLimit = {
 
 // stream-json is one event per line: the final `result` (same shape the
 // plain json format prints) and the account's usage-window state
+//
+// When a reply hits the output cap the CLI does not stop: it sends the model
+// a message of its own ("Output token limit hit. Resume...") and returns
+// only the last segment. max_tokens is a hard cap here, as it is on the API:
+// the reply is what the model wrote before the cap, the continuation is
+// dropped and the call is marked truncated. (No CLI-authored text may steer
+// an agent: hard rule 2.)
 function parseStream(stdout: string): {
   result: CliResult | undefined;
   limits: UsageWindow[];
+  segments: string[];
 } {
   let result: CliResult | undefined;
   let limits: UsageWindow[] = [];
+  const segments: string[] = [];
   for (const line of stdout.split("\n")) {
     if (!line.startsWith("{")) continue;
-    let event: CliResult & CliRateLimit;
+    let event: CliResult & CliRateLimit & CliMessage;
     try {
-      event = JSON.parse(line) as CliResult & CliRateLimit;
+      event = JSON.parse(line) as CliResult & CliRateLimit & CliMessage;
     } catch {
       continue;
     }
     if (event.type === "result") result = event;
+    if (event.type === "assistant" && Array.isArray(event.message?.content))
+      segments.push(
+        event.message.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text ?? "")
+          .join(""),
+      );
     if (event.type === "rate_limit_event")
       limits = Object.entries(
         event.rate_limit_info?.unifiedWindows ?? {},
@@ -59,7 +80,7 @@ function parseStream(stdout: string): {
           : [],
       );
   }
-  return { result, limits };
+  return { result, limits, segments };
 }
 
 // Runs each wake as a single `claude -p` call, billed to the operator's
@@ -154,7 +175,9 @@ export function makeClaudeCodeProvider(options: {
                 );
                 return;
               }
-              const { result: parsed, limits } = parseStream(stdout);
+              const { result: parsed, limits, segments } = parseStream(stdout);
+              const spoken = segments.filter((text) => text !== "");
+              const truncated = spoken.length > 1;
               if (parsed === undefined) {
                 reject(
                   new Error(
@@ -172,7 +195,7 @@ export function makeClaudeCodeProvider(options: {
                 return;
               }
               resolve({
-                text: parsed.result ?? "",
+                text: truncated ? (spoken[0] ?? "") : (parsed.result ?? ""),
                 usage: {
                   inputTokens: parsed.usage?.input_tokens ?? 0,
                   outputTokens: parsed.usage?.output_tokens ?? 0,
@@ -180,7 +203,13 @@ export function makeClaudeCodeProvider(options: {
                   cacheWriteTokens:
                     parsed.usage?.cache_creation_input_tokens ?? 0,
                 },
-                raw: { ...parsed, _limits: limits },
+                raw: {
+                  ...parsed,
+                  _limits: limits,
+                  ...(truncated
+                    ? { _truncated: true, _continuations: spoken.length - 1 }
+                    : {}),
+                },
               });
             },
           );

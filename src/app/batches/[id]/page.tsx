@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -6,7 +6,7 @@ import { BatchControls } from "@/components/batch-controls";
 import { BatchRefresh } from "@/components/batch-refresh";
 import { ObserveButton } from "@/components/observe-button";
 import { Badge } from "@/components/ui/badge";
-import { runnerPid } from "@/lib/batch-launcher";
+import { observerRunning, runnerPid } from "@/lib/batch-launcher";
 import { batchDirFromId } from "@/lib/runs-fs";
 import {
   analyzeBatch,
@@ -68,13 +68,22 @@ export default async function BatchPage({
   const logTail = existsSync(logPath)
     ? readFileSync(logPath, "utf8").trim().split("\n").slice(-6)
     : [];
+  const observing = observerRunning(dir);
+  const observerLogPath = join(dir, "observer.log");
+  const observerLog =
+    observing && existsSync(observerLogPath)
+      ? readFileSync(observerLogPath, "utf8").trim().split("\n").slice(-4)
+      : [];
+  const rubrics = readdirSync("observers")
+    .filter((file) => file.endsWith(".yaml") && file !== "mock.yaml")
+    .map((file) => file.replace(/\.yaml$/, ""));
   const observerPath = join(dir, "observer.json");
   const observed: ObserverResult | null = existsSync(observerPath)
     ? (JSON.parse(readFileSync(observerPath, "utf8")) as ObserverResult)
     : null;
   return (
     <div className="space-y-5">
-      <BatchRefresh active={inProgress} />
+      <BatchRefresh active={inProgress || observing} />
       <div>
         <div className="flex items-center gap-2">
           <h1 className="text-lg font-semibold">{info.label ?? id}</h1>
@@ -147,6 +156,8 @@ export default async function BatchPage({
             {summary.calls.toLocaleString()} model calls ·{" "}
             {summary.tokens_in.toLocaleString()} tokens read ·{" "}
             {summary.tokens_out.toLocaleString()} written
+            {summary.cost?.usd != null &&
+              ` · would cost about $${summary.cost.usd.toFixed(2)} through the APIs at list prices ($${(summary.cost.usd_per_game ?? 0).toFixed(2)} per game)`}
             {aborted > 0 &&
               ` · ${aborted} attempt${aborted === 1 ? "" : "s"} aborted by a failing provider and replayed (not counted)`}
           </p>
@@ -167,9 +178,23 @@ export default async function BatchPage({
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold">Observer report</h2>
           {!inProgress && runDirs.length > 0 && (
-            <ObserveButton batchId={id} hasReport={observed !== null} />
+            <ObserveButton
+              batchId={id}
+              hasReport={observed !== null}
+              running={observing}
+              rubrics={rubrics}
+            />
           )}
         </div>
+        {observing && (
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border p-3 font-mono text-xs text-muted-foreground">
+            {observerLog.join("\n") || "starting…"}
+          </pre>
+        )}
+        <p className="text-xs text-muted-foreground">
+          The observer&apos;s instructions are plain files you can read and
+          edit: observers/baseline.yaml and observers/interest.yaml.
+        </p>
         {observed?.report ? (
           <div className="space-y-3 rounded-lg border p-4">
             <p className="text-sm">{observed.report.summary}</p>

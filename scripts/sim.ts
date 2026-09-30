@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   env,
@@ -343,6 +343,14 @@ function printSummary(summary: BatchSummary): void {
         .join(", ") || "none"
     }`,
   );
+  if (summary.cost)
+    console.log(
+      summary.cost.usd === null
+        ? "API list-price cost: a model in this batch has no pricing row"
+        : `API list-price cost: $${summary.cost.usd.toFixed(2)} total, $${(summary.cost.usd_per_game ?? 0).toFixed(2)} per game (${summary.cost.by_model
+            .map((m) => `${m.model} $${(m.usd ?? 0).toFixed(2)}`)
+            .join(", ")})`,
+    );
   for (const cell of summary.by_model_role)
     console.log(
       `  ${cell.role.padEnd(10)} ${cell.model.padEnd(22)} ` +
@@ -405,10 +413,13 @@ async function commandObserve(
     );
     process.exit(1);
   }
+  const marker = join(target, "observer.running");
+  writeFileSync(marker, String(process.pid));
   const result = await runObserver(runDirs, target, observer, providerKeys(), {
     ...(isBatch ? { summary: analyzeBatch(target).summary } : {}),
     onLog: (line) => console.log(line),
   });
+  rmSync(marker, { force: true });
   if (result.notes)
     console.log(
       `per-game notes on ${result.notes.model}: ${result.notes.written} written, ` +

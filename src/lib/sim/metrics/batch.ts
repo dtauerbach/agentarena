@@ -6,8 +6,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { loadPricing } from "../pricing";
 import type { AgentMetrics, RunMetrics } from "./analyze";
 import { analyzeRun } from "./analyze";
+import type { GameCost } from "./cost";
+import { readGameCost } from "./cost";
 import type { GameRecord } from "./outcome";
 import { readGameRecord } from "./outcome";
 
@@ -153,9 +156,40 @@ export type BatchSummary = {
   calls: number;
   tokens_in: number;
   tokens_out: number;
+  // what the same calls would cost through the APIs at list prices
+  cost?: {
+    usd: number | null;
+    usd_per_game: number | null;
+    by_model: { model: string; calls: number; usd: number | null }[];
+  };
 };
 
-export function summarizeBatch(games: { game: GameRecord }[]): BatchSummary {
+function summarizeCost(costs: GameCost[]): BatchSummary["cost"] {
+  const byModel = new Map<string, { calls: number; usd: number | null }>();
+  for (const cost of costs)
+    for (const cell of cost.by_model) {
+      const entry = byModel.get(cell.model) ?? { calls: 0, usd: 0 };
+      entry.calls += cell.calls;
+      entry.usd =
+        entry.usd === null || cell.usd === null ? null : entry.usd + cell.usd;
+      byModel.set(cell.model, entry);
+    }
+  const priced = costs.every((c) => c.usd !== null);
+  const usd = priced ? costs.reduce((n, c) => n + (c.usd ?? 0), 0) : null;
+  return {
+    usd,
+    usd_per_game:
+      usd === null || costs.length === 0 ? null : usd / costs.length,
+    by_model: [...byModel.entries()].map(([model, entry]) => ({
+      model,
+      ...entry,
+    })),
+  };
+}
+
+export function summarizeBatch(
+  games: { game: GameRecord; cost?: GameCost }[],
+): BatchSummary {
   const outcomes: Record<string, number> = {};
   const cells = new Map<
     string,
@@ -231,15 +265,28 @@ export function summarizeBatch(games: { game: GameRecord }[]): BatchSummary {
     calls: games.reduce((n, g) => n + g.game.calls, 0),
     tokens_in: games.reduce((n, g) => n + g.game.tokens_in, 0),
     tokens_out: games.reduce((n, g) => n + g.game.tokens_out, 0),
+    ...(games.every((g) => g.cost !== undefined)
+      ? { cost: summarizeCost(games.flatMap((g) => (g.cost ? [g.cost] : []))) }
+      : {}),
   };
+}
+
+function safePricing(): ReturnType<typeof loadPricing> {
+  try {
+    return loadPricing();
+  } catch {
+    return {};
+  }
 }
 
 // the live view of a batch: results from the games completed so far, read
 // straight off their records without the full metrics pass
 export function quickSummary(batchDir: string): BatchSummary {
+  const pricing = safePricing();
   return summarizeBatch(
     listBatchRunDirs(batchDir).map((entry) => ({
       game: readGameRecord(join(batchDir, entry)),
+      cost: readGameCost(join(batchDir, entry), pricing),
     })),
   );
 }
@@ -261,11 +308,16 @@ export function analyzeBatch(batchDir: string): {
 } {
   const runRows: Record<string, unknown>[] = [];
   const agentRows: Record<string, unknown>[] = [];
-  const games: { game: GameRecord; metrics: RunMetrics }[] = [];
+  const pricing = safePricing();
+  const games: { game: GameRecord; metrics: RunMetrics; cost: GameCost }[] = [];
   for (const entry of listBatchRunDirs(batchDir)) {
     const metrics = analyzeRun(join(batchDir, entry));
     const game = readGameRecord(join(batchDir, entry));
-    games.push({ game, metrics });
+    games.push({
+      game,
+      metrics,
+      cost: readGameCost(join(batchDir, entry), pricing),
+    });
     runRows.push(runRow(entry, metrics, game));
     for (const agent of metrics.agents)
       agentRows.push(agentRow(entry, metrics, agent, game));

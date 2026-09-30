@@ -1,28 +1,23 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import {
-  hasCredentialsFor,
-  missingCredentialsMessage,
-  openAIBaseUrl,
-  readApiKey,
-  readOpenAIKey,
-} from "@/lib/env";
+import { observerRunning, startObserver } from "@/lib/batch-launcher";
+import { hasCredentialsFor, missingCredentialsMessage } from "@/lib/env";
 import { batchDirFromId } from "@/lib/runs-fs";
 import { listBatchRunDirs } from "@/lib/sim/metrics/batch";
-import { loadObserver, runObserver } from "@/lib/sim/observe";
-import { probeClaudeCode } from "@/lib/sim/providers/claude-code";
+import { loadObserver } from "@/lib/sim/observe";
 
 const observeSchema = z.object({
   observer: z
     .string()
     .regex(/^[\w-]+$/)
-    .default("interest"),
+    .default("baseline"),
 });
 
-// run the corpus observer over a finished batch; blocking (one model call,
-// tens of seconds) — the button shows progress
+// Start the corpus observer over a batch as a detached job. Reading a large
+// batch takes minutes (a note per game, then a synthesis); the batch page
+// follows its log and shows the report when it lands.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -40,31 +35,27 @@ export async function POST(
         { status: 404 },
       );
     const observer = loadObserver(observerPath);
-    if (!hasCredentialsFor(observer.provider))
-      return NextResponse.json(
-        { error: missingCredentialsMessage(observer.provider) },
-        { status: 400 },
-      );
-    if (observer.provider === "claude_code") {
-      const probeError = await probeClaudeCode(observer.model);
-      if (probeError !== null)
-        return NextResponse.json({ error: probeError }, { status: 400 });
-    }
-    const runDirs = listBatchRunDirs(dir).map((entry) => join(dir, entry));
-    if (runDirs.length === 0)
+    for (const provider of new Set([
+      observer.provider,
+      ...(observer.per_run ? [observer.per_run.provider] : []),
+    ]))
+      if (!hasCredentialsFor(provider))
+        return NextResponse.json(
+          { error: missingCredentialsMessage(provider) },
+          { status: 400 },
+        );
+    if (listBatchRunDirs(dir).length === 0)
       return NextResponse.json(
         { error: "no finished runs yet" },
         { status: 400 },
       );
-    const result = await runObserver(runDirs, dir, observer, {
-      anthropic: readApiKey(),
-      openai: readOpenAIKey(),
-      openaiBaseUrl: openAIBaseUrl(),
-    });
-    return NextResponse.json({
-      parsed: result.report !== undefined,
-      parse_error: result.parse_error,
-    });
+    if (observerRunning(dir))
+      return NextResponse.json(
+        { error: "the observer is already reading this batch" },
+        { status: 409 },
+      );
+    startObserver(dir, parsed.data.observer);
+    return NextResponse.json({ started: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },

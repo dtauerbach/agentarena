@@ -4,7 +4,7 @@
 name: interest
 model: claude-opus-5
 provider: claude_code
-max_tokens: 2500
+max_tokens: 8000
 
 prompt: |
   You are reviewing transcripts from batches of multi-agent games played by
@@ -32,8 +32,8 @@ instruction: |
       {"run": "<run directory name from the header>", "score": <0-10>, "why": "<one or two sentences>"}
     ]
   }
-  Include every run in notable_runs with an interest score; order it from
-  most to least interesting.
+  List at most the 12 most interesting runs in notable_runs, each with an
+  interest score, most interesting first.
 
 render:
   run_header: "##### GAME {run} ({name}, seed {seed}, {posts} posts, duration {duration}) #####"

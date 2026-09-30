@@ -111,6 +111,34 @@ export function resumeBatch(batchDir: string): void {
   );
 }
 
+// A large batch is read in two stages that take minutes, so the observer
+// runs detached too; its progress goes to <batch dir>/observer.log and the
+// CLI keeps a marker while it works.
+export function startObserver(batchDir: string, rubric: string): void {
+  startRunner(
+    [
+      "analyze",
+      batchDir,
+      "--observe",
+      join("observers", `${rubric}.yaml`),
+      "--yes",
+    ],
+    join(batchDir, "observer.log"),
+    "observer",
+  );
+}
+
+export function observerRunning(batchDir: string): boolean {
+  const path = join(batchDir, "observer.running");
+  if (!existsSync(path)) return false;
+  try {
+    process.kill(Number(readFileSync(path, "utf8").trim()), 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // the process playing this batch, if one is alive
 export function runnerPid(batchDir: string): number | null {
   const path = join(batchDir, "runner.json");
