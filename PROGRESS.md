@@ -172,6 +172,15 @@
   the observer's JSON); observer runs detached with a rubric picker;
   pricing.yaml corrected (Sonnet 5 $2/$10) and GPT rows added.
 
+- **2026-09-30 TESTTHIRTY: nine seats + detective.** `detective9.yaml`
+  (2 mafia, 1 detective with a private office, 6 villagers; 5 Sonnet + 4
+  GPT-6 Sol dealt per game). Village 18 / mafia 12 vs 5 / 15 before. But
+  Sonnet detectives lost 64 of 78 checks by writing CHECK before the POST:
+  marker (my prompt), so the detective was mostly absent; fixed prompts,
+  added `rooms.<name>.view` (night rooms read the village board) and
+  rerunning as TESTTHIRTY-B. Report: runs/batch-20260930-002245-testthirty/
+  REPORT.md. Observer parser now takes the last complete JSON object.
+
 ## Decisions
 
 - Observer is corpus-level (operator: "once per thousand games"), not
