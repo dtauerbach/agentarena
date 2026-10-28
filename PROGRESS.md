@@ -396,3 +396,8 @@
   runner, two-stage observer, batch results panel, docs/BATCHES.md.
 - 2026-09-30: roles dealt by seed (counts + role_prompts + members by role +
   moderator placeholders); mafia configs converted.
+- 2026-10-28: README rewritten for outside readers and other AIs (reading
+  order, providers, hard rules); AGENTS.md preamble pointing non-Claude
+  agents at CLAUDE.md/SPEC/PROGRESS; .env.example filled (and un-ignored:
+  the scaffold .gitignore block re-ignored it). Follow-up: the
+  "Status right now" section is ~200 lines against the ≤10-line agreement.
