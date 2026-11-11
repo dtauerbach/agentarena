@@ -108,3 +108,7 @@ override whatever the agents "seem to want".
    model ids, git hash, every request and response.
 6. No live API calls in `npm test`. Credit-spending runs need an explicit
    confirm in the UI.
+
+## License
+
+AGPL-3.0-only; see [LICENSE](LICENSE). Contribution terms and the rule for pull requests written by agents are in [CONTRIBUTING.md](CONTRIBUTING.md).
